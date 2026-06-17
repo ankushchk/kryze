@@ -1,0 +1,62 @@
+# Dependency directories
+node_modules
+/node_modules
+*/node_modules
+.pnpm-store
+
+# Next.js / Nuxt.js / Remix / NestJS build outputs
+.next
+.nuxt
+.output
+dist
+build
+out
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data and caches
+.npm
+.eslintcache
+.stylelintcache
+.prettiercache
+.turbo
+.parcel-cache
+.cache
+
+# Testing
+coverage
+.nyc_output
+
+# IDEs and editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db
