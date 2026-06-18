@@ -1,6 +1,6 @@
 import express from "express";
-import mongoose from "mongoose";
 import "dotenv/config";
+import { connectDatabase } from "./config/dbConnect.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
@@ -16,21 +16,7 @@ app.get("/health", (_req, res) => {
 });
 
 async function startServer() {
-  const mongoUri = process.env.MONGODB_URI;
-
-  if (mongoUri) {
-    try {
-      await mongoose.connect(mongoUri);
-      console.log("Connected to MongoDB");
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("Failed to connect to MongoDB:", message);
-    }
-  } else {
-    console.warn(
-      "MONGODB_URI is not set. Starting server without database connection.",
-    );
-  }
+  await connectDatabase();
 
   app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
