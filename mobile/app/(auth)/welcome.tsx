@@ -6,7 +6,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
 import { ThemedView } from '@/components/themed-view';
 import { PrimaryButton } from '@/components/auth-ui';
-import { Handshake, Banknote, Coins, CheckCircle, Zap, CreditCard, Home, Plane, Gift } from 'lucide-react-native';
+import { Handshake, Banknote, Coins, CheckCircle, Zap, CreditCard, Home, Plane, Gift, ArrowRight } from 'lucide-react-native';
 
 const SLIDES = [
   {
@@ -78,7 +78,7 @@ export default function WelcomeScreen() {
 
       <View style={styles.footer}>
         <Link href="/(auth)/signup" asChild>
-          <PrimaryButton title="Get started →" />
+          <PrimaryButton title="Get started" iconRight={<ArrowRight size={18} color={theme.primaryText} strokeWidth={2.5} />} />
         </Link>
         <View style={styles.signInRow}>
           <Text style={[styles.signInText, { color: theme.text3 }]}>Already have an account? </Text>
