@@ -1,23 +1,23 @@
 import React, { useState } from 'react';
-import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { ArrowRight } from 'lucide-react-native';
-import { AuthInput, PrimaryButton, SocialButton, Divider, PinDots } from '@/components/auth-ui';
+import { AuthInput, PrimaryButton, SocialButton, Divider } from '@/components/auth-ui';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { ThemedView } from '@/components/themed-view';
 
-export default function LoginScreen() {
+export default function SignUpScreen() {
   const theme = useTheme();
 
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async () => {
-    if (!email || !password) {
+  const handleSignUp = async () => {
+    if (!email || !password || !name) {
       setError('Please fill in all fields');
       return;
     }
@@ -25,15 +25,23 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
     
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: name,
+        }
+      }
     });
 
-    if (signInError) {
-      setError(signInError.message);
+    if (signUpError) {
+      setError(signUpError.message);
+    } else {
+      // Supabase automatically logs in if email confirmations are off.
+      // If confirmed, the session will change and redirect.
+      // We will also push to tabs just in case, but let the AuthProvider handle it normally.
     }
-    // Success is handled by AuthProvider (redirects to tabs)
     
     setLoading(false);
   };
@@ -48,10 +56,23 @@ export default function LoginScreen() {
           
           <View style={styles.logoBlock}>
             <Text style={[styles.logo, { color: theme.primary }]}>Splikaro</Text>
-            <Text style={[styles.welcomeText, { color: theme.text2 }]}>Welcome back 👋</Text>
+            <Text style={[styles.tagline, { color: theme.text3 }]}>Your shared expense tracker</Text>
           </View>
 
+          <View style={styles.socialBlock}>
+            <SocialButton title="Continue with Google" icon="G" />
+            <SocialButton title="Continue with Phone" icon="📱" />
+          </View>
+
+          <Divider text="or sign up with email" />
+
           <View style={styles.formBlock}>
+            <AuthInput 
+              label="Full Name" 
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+            />
             <AuthInput 
               label="Email" 
               value={email}
@@ -65,16 +86,12 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               secureTextEntry
             />
-            <TouchableOpacity style={styles.forgotPassword}>
-              <Text style={[styles.forgotText, { color: theme.primary }]}>Forgot password?</Text>
-            </TouchableOpacity>
           </View>
 
           <PrimaryButton 
-            title="Sign in" 
-            onPress={handleSignIn} 
+            title="Create account" 
+            onPress={handleSignUp} 
             loading={loading}
-            iconRight={<ArrowRight size={18} color={theme.primaryText} strokeWidth={2.5} />}
             disabled={loading}
           />
 
@@ -82,18 +99,18 @@ export default function LoginScreen() {
             <Text style={[styles.errorText, { color: theme.owe }]}>{error}</Text>
           )}
 
-          <Divider text="or" />
-
-          <SocialButton title="Continue with Google" icon="G" />
-
-          <PinDots />
+          <Text style={[styles.termsText, { color: theme.text3 }]}>
+            By continuing you agree to our{' '}
+            <Text style={{ color: theme.primary }}>Terms</Text> and{' '}
+            <Text style={{ color: theme.primary }}>Privacy Policy</Text>
+          </Text>
 
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.text3 }]}>
-              No account?{' '}
+              Already have an account?{' '}
             </Text>
-            <Link href="/(auth)/signup" asChild>
-              <Text style={StyleSheet.flatten([styles.footerLink, { color: theme.primary }])}>Sign up free</Text>
+            <Link href="/(auth)/login" asChild>
+              <Text style={StyleSheet.flatten([styles.footerLink, { color: theme.primary }])}>Sign in</Text>
             </Link>
           </View>
 
@@ -123,22 +140,15 @@ const styles = StyleSheet.create({
     fontSize: 28,
     marginBottom: 4,
   },
-  welcomeText: {
+  tagline: {
     fontFamily: Typography.body,
-    fontSize: 11,
+    fontSize: 10,
+  },
+  socialBlock: {
+    marginBottom: 10,
   },
   formBlock: {
     marginBottom: 20,
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginTop: -10,
-    marginBottom: 10,
-    paddingVertical: 5,
-  },
-  forgotText: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 11,
   },
   errorText: {
     fontFamily: Typography.body,
@@ -146,10 +156,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
+  termsText: {
+    fontFamily: Typography.body,
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 30,
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 40,
+    marginTop: 'auto',
   },
   footerText: {
     fontFamily: Typography.body,
