@@ -16,7 +16,7 @@ SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const { session, initialized } = useAuth();
+  const { session, user, initialized } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -24,13 +24,23 @@ function RootLayoutNav() {
     if (!initialized) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const isCompleteProfileScreen = segments[1] === 'complete-profile';
+    const isProfileIncomplete = session && !user?.name;
 
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/welcome');
-    } else if (session && inAuthGroup) {
-      router.replace('/');
+    } else if (session) {
+      if (isProfileIncomplete) {
+        if (!isCompleteProfileScreen) {
+          router.replace('/(auth)/complete-profile');
+        }
+      } else {
+        if (inAuthGroup) {
+          router.replace('/');
+        }
+      }
     }
-  }, [session, initialized, segments, router]);
+  }, [session, user, initialized, segments, router]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

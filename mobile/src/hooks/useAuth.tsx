@@ -20,6 +20,7 @@ type AuthContextType = {
   signInWithGoogle: (idToken: string) => Promise<{ error: Error | null }>;
   sendPhoneOTP: (phoneNumber: string) => Promise<{ error: Error | null }>;
   verifyPhoneOTP: (phoneNumber: string, code: string) => Promise<{ error: Error | null }>;
+  updateProfile: (name: string, email?: string) => Promise<{ error: Error | null }>;
   signUp: (name: string, email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
@@ -33,6 +34,7 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => ({ error: new Error('AuthContext not initialized') }),
   sendPhoneOTP: async () => ({ error: new Error('AuthContext not initialized') }),
   verifyPhoneOTP: async () => ({ error: new Error('AuthContext not initialized') }),
+  updateProfile: async () => ({ error: new Error('AuthContext not initialized') }),
   signUp: async () => ({ error: new Error('AuthContext not initialized') }),
   signOut: async () => {},
 });
@@ -178,6 +180,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProfile = async (name: string, email?: string) => {
+    try {
+      const response = await apiRequest('/api/auth/profile', {
+        method: 'PUT',
+        body: { name, email },
+      });
+
+      if (response?.user) {
+        setUser(response.user);
+        return { error: null };
+      }
+      return { error: new Error(response?.error || 'Failed to update profile') };
+    } catch (err: any) {
+      return { error: err };
+    }
+  };
+
   const signOut = async () => {
     await removeAuthToken();
     setSession(null);
@@ -185,7 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, initialized, isGoogleConfigured, signInWithPassword, signInWithGoogle, sendPhoneOTP, verifyPhoneOTP, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, initialized, isGoogleConfigured, signInWithPassword, signInWithGoogle, sendPhoneOTP, verifyPhoneOTP, updateProfile, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );
