@@ -10,6 +10,7 @@
     "@expo-google-fonts/nunito": "^0.4.2",
     "@expo/ui": "~56.0.18",
     "@maniac-tech/react-native-expo-read-sms": "^9.1.2",
+    "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-navigation/native": "^7.3.3",
     "expo": "~56.0.12",
     "expo-camera": "^56.0.8",
