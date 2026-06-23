@@ -8,7 +8,8 @@ export interface AuthRequest extends Request {
   userId?: string;
   user?: {
     id: string;
-    email: string;
+    email: string | null;
+    phoneNumber: string | null;
     name: string | null;
     createdAt: Date;
     updatedAt: Date;
@@ -35,6 +36,7 @@ export async function authenticateToken(
       select: {
         id: true,
         email: true,
+        phoneNumber: true,
         name: true,
         createdAt: true,
         updatedAt: true,
