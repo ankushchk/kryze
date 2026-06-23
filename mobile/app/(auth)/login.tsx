@@ -11,6 +11,7 @@ import { ThemedView } from '@/components/themed-view';
 
 export default function LoginScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { signInWithPassword, signInWithGoogle, isGoogleConfigured } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -120,6 +121,7 @@ export default function LoginScreen() {
           <Divider text="or" />
 
           <SocialButton title="Continue with Google" icon="G" onPress={handleGoogleSignIn} />
+          <SocialButton title="Continue with Phone" icon="📱" onPress={() => router.push('/(auth)/phone')} />
 
           <PinDots />
 

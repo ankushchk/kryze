@@ -4,7 +4,8 @@ import { apiRequest, getAuthToken, setAuthToken, removeAuthToken } from '@/lib/a
 
 export type AppUser = {
   id: string;
-  email: string;
+  email: string | null;
+  phoneNumber: string | null;
   name: string | null;
   createdAt: string;
   updatedAt: string;
@@ -17,6 +18,8 @@ type AuthContextType = {
   isGoogleConfigured: boolean;
   signInWithPassword: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: (idToken: string) => Promise<{ error: Error | null }>;
+  sendPhoneOTP: (phoneNumber: string) => Promise<{ error: Error | null }>;
+  verifyPhoneOTP: (phoneNumber: string, code: string) => Promise<{ error: Error | null }>;
   signUp: (name: string, email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
@@ -28,6 +31,8 @@ const AuthContext = createContext<AuthContextType>({
   isGoogleConfigured: false,
   signInWithPassword: async () => ({ error: new Error('AuthContext not initialized') }),
   signInWithGoogle: async () => ({ error: new Error('AuthContext not initialized') }),
+  sendPhoneOTP: async () => ({ error: new Error('AuthContext not initialized') }),
+  verifyPhoneOTP: async () => ({ error: new Error('AuthContext not initialized') }),
   signUp: async () => ({ error: new Error('AuthContext not initialized') }),
   signOut: async () => {},
 });
@@ -139,6 +144,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendPhoneOTP = async (phoneNumber: string) => {
+    try {
+      const response = await apiRequest('/api/auth/phone/send', {
+        method: 'POST',
+        body: { phoneNumber },
+      });
+      if (response && !response.error) {
+        return { error: null };
+      }
+      return { error: new Error(response?.error || 'Failed to send OTP') };
+    } catch (err: any) {
+      return { error: err };
+    }
+  };
+
+  const verifyPhoneOTP = async (phoneNumber: string, code: string) => {
+    try {
+      const response = await apiRequest('/api/auth/phone/verify', {
+        method: 'POST',
+        body: { phoneNumber, code },
+      });
+
+      if (response?.token && response?.user) {
+        await setAuthToken(response.token);
+        setSession({ token: response.token });
+        setUser(response.user);
+        return { error: null };
+      }
+      return { error: new Error(response?.error || 'Invalid verification response') };
+    } catch (err: any) {
+      return { error: err };
+    }
+  };
+
   const signOut = async () => {
     await removeAuthToken();
     setSession(null);
@@ -146,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, initialized, isGoogleConfigured, signInWithPassword, signInWithGoogle, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, initialized, isGoogleConfigured, signInWithPassword, signInWithGoogle, sendPhoneOTP, verifyPhoneOTP, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

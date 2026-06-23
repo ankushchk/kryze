@@ -89,7 +89,7 @@ export default function SignUpScreen() {
 
           <View style={styles.socialBlock}>
             <SocialButton title="Continue with Google" icon="G" onPress={handleGoogleSignIn} />
-            <SocialButton title="Continue with Phone" icon="📱" />
+            <SocialButton title="Continue with Phone" icon="📱" onPress={() => router.push('/(auth)/phone')} />
           </View>
 
           <Divider text="or sign up with email" />
