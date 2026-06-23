@@ -4,12 +4,13 @@ import { Link, useRouter } from 'expo-router';
 import { AuthInput, PrimaryButton, SocialButton, Divider } from '@/components/auth-ui';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { useAuth } from '@/hooks/useAuth';
 import { ThemedView } from '@/components/themed-view';
 
 export default function SignUpScreen() {
   const theme = useTheme();
-  const { signUp } = useAuth();
+  const { signUp, signInWithGoogle, isGoogleConfigured } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -37,6 +38,42 @@ export default function SignUpScreen() {
     setLoading(false);
   };
 
+  const handleGoogleSignIn = async () => {
+    if (!isGoogleConfigured) {
+      setError('Google Sign-In is not configured in this build environment (client IDs are missing).');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+
+      if (!idToken) {
+        throw new Error('Google Sign-In did not return an ID token');
+      }
+
+      const { error: googleError } = await signInWithGoogle(idToken);
+      if (googleError) {
+        setError(googleError.message);
+      }
+    } catch (err: any) {
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        console.log('User cancelled Google Sign-In');
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        console.log('Google Sign-In already in progress');
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setError('Google Play Services not available or outdated');
+      } else {
+        setError(err.message || 'An error occurred during Google Sign-In');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView 
@@ -51,7 +88,7 @@ export default function SignUpScreen() {
           </View>
 
           <View style={styles.socialBlock}>
-            <SocialButton title="Continue with Google" icon="G" />
+            <SocialButton title="Continue with Google" icon="G" onPress={handleGoogleSignIn} />
             <SocialButton title="Continue with Phone" icon="📱" />
           </View>
 
