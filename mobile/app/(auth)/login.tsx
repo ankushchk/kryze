@@ -5,11 +5,12 @@ import { ArrowRight } from 'lucide-react-native';
 import { AuthInput, PrimaryButton, SocialButton, Divider, PinDots } from '@/components/auth-ui';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { ThemedView } from '@/components/themed-view';
 
 export default function LoginScreen() {
   const theme = useTheme();
+  const { signInWithPassword } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,10 +26,7 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
     
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error: signInError } = await signInWithPassword(email, password);
 
     if (signInError) {
       setError(signInError.message);

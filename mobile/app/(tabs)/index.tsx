@@ -1,11 +1,13 @@
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { StyleSheet, Button } from 'react-native';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function HomeScreen() {
+  const { signOut } = useAuth();
+  
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
   };
 
   return (

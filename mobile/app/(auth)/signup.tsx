@@ -4,11 +4,12 @@ import { Link, useRouter } from 'expo-router';
 import { AuthInput, PrimaryButton, SocialButton, Divider } from '@/components/auth-ui';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { ThemedView } from '@/components/themed-view';
 
 export default function SignUpScreen() {
   const theme = useTheme();
+  const { signUp } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -25,22 +26,12 @@ export default function SignUpScreen() {
     setLoading(true);
     setError(null);
     
-    const { error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: name,
-        }
-      }
-    });
+    const { error: signUpError } = await signUp(name, email, password);
 
     if (signUpError) {
       setError(signUpError.message);
     } else {
-      // Supabase automatically logs in if email confirmations are off.
-      // If confirmed, the session will change and redirect.
-      // We will also push to tabs just in case, but let the AuthProvider handle it normally.
+      // Success is handled by AuthProvider (redirects to tabs)
     }
     
     setLoading(false);
