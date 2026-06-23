@@ -9,10 +9,19 @@ datasource db {
 
 model User {
   id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
+  email        String?  @unique
+  phoneNumber  String?  @unique
   name         String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   passwordHash String?
   googleId     String?  @unique
+}
+
+model PhoneVerification {
+  id          String   @id @default(uuid()) @db.Uuid
+  phoneNumber String   @unique
+  code        String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
 }
