@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../config/dbConnect.js";
 import { authenticateToken, AuthRequest } from "../middleware/auth.js";
 
@@ -82,7 +83,7 @@ router.post("/login", async (req, res): Promise<void> => {
       where: { email },
     });
 
-    if (!user) {
+    if (!user || !user.passwordHash) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -111,6 +112,89 @@ router.post("/login", async (req, res): Promise<void> => {
     });
   } catch (error) {
     console.error("Login error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const googleClient = new OAuth2Client();
+
+// POST /api/auth/google
+router.post("/google", async (req, res): Promise<void> => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      res.status(400).json({ error: "idToken is required" });
+      return;
+    }
+
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken,
+      });
+      payload = ticket.getPayload();
+    } catch (err: any) {
+      console.error("Google ID Token verification failed:", err);
+      res.status(401).json({ error: "Invalid Google ID token" });
+      return;
+    }
+
+    if (!payload || !payload.email) {
+      res.status(400).json({ error: "Invalid token payload" });
+      return;
+    }
+
+    const email = payload.email.toLowerCase();
+    const googleId = payload.sub;
+    const name = payload.name || `${payload.given_name || ""} ${payload.family_name || ""}`.trim();
+
+    // Find user in NeonDB by googleId first
+    let user = await prisma.user.findUnique({
+      where: { googleId },
+    });
+
+    if (!user) {
+      // Find user by email (in case they previously registered with email/password)
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (user) {
+        // Link googleId to their existing email account
+        user = await prisma.user.update({
+          where: { email },
+          data: { googleId },
+        });
+      } else {
+        // Create new user for Google Sign-In
+        user = await prisma.user.create({
+          data: {
+            email,
+            googleId,
+            name: name || null,
+          },
+        });
+      }
+    }
+
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "30d",
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      token,
+    });
+  } catch (error) {
+    console.error("Google Sign-In error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
