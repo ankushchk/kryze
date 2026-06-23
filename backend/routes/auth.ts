@@ -212,6 +212,28 @@ if (twilioAccountSid && twilioAuthToken) {
   twilioClient = twilio(twilioAccountSid, twilioAuthToken);
 }
 
+export function normalizePhoneNumber(phone: string): string {
+  // Strip all whitespace, dashes, parentheses, etc. except the leading '+'
+  let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+  
+  // If it's a 10-digit number (e.g. 9354644369), prepend '+91'
+  if (/^\d{10}$/.test(cleaned)) {
+    return `+91${cleaned}`;
+  }
+  
+  // If it's 12 digits starting with '91' but no '+' (e.g. 919354644369), prepend '+'
+  if (/^91\d{10}$/.test(cleaned)) {
+    return `+${cleaned}`;
+  }
+  
+  // Ensure it starts with '+'
+  if (!cleaned.startsWith("+")) {
+    return `+${cleaned}`;
+  }
+  
+  return cleaned;
+}
+
 // POST /api/auth/phone/send
 router.post("/phone/send", async (req, res): Promise<void> => {
   try {
@@ -222,15 +244,17 @@ router.post("/phone/send", async (req, res): Promise<void> => {
       return;
     }
 
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+
     // Generate a 6-digit OTP code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiration
 
     // Save or update (upsert) the verification code in DB
     await prisma.phoneVerification.upsert({
-      where: { phoneNumber },
+      where: { phoneNumber: normalizedPhone },
       update: { code, expiresAt },
-      create: { phoneNumber, code, expiresAt },
+      create: { phoneNumber: normalizedPhone, code, expiresAt },
     });
 
     // Send the SMS
@@ -239,16 +263,16 @@ router.post("/phone/send", async (req, res): Promise<void> => {
         await twilioClient.messages.create({
           body: `Your Kryze verification code is: ${code}. It expires in 5 minutes.`,
           from: twilioPhoneNumber,
-          to: phoneNumber,
+          to: normalizedPhone,
         });
-        console.log(`SMS sent successfully to ${phoneNumber}`);
+        console.log(`SMS sent successfully to ${normalizedPhone}`);
       } catch (smsError: any) {
         console.error("Failed to send SMS via Twilio:", smsError);
         // If not in production, fall back to console logging so testing/development is not blocked
         if (process.env.NODE_ENV !== "production") {
           console.warn("Falling back to console logging due to Twilio error.");
           console.log(`\n--- [SMS FALLBACK LOG (TWILIO ERROR)] ---`);
-          console.log(`To: ${phoneNumber}`);
+          console.log(`To: ${normalizedPhone}`);
           console.log(`Code: ${code}`);
           console.log(`-----------------------------------------\n`);
         } else {
@@ -259,7 +283,7 @@ router.post("/phone/send", async (req, res): Promise<void> => {
     } else {
       // Console logging fallback
       console.log(`\n--- [SMS FALLBACK LOG] ---`);
-      console.log(`To: ${phoneNumber}`);
+      console.log(`To: ${normalizedPhone}`);
       console.log(`Code: ${code}`);
       console.log(`--------------------------\n`);
     }
@@ -281,9 +305,11 @@ router.post("/phone/verify", async (req, res): Promise<void> => {
       return;
     }
 
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+
     // Lookup verification entry
     const verification = await prisma.phoneVerification.findUnique({
-      where: { phoneNumber },
+      where: { phoneNumber: normalizedPhone },
     });
 
     if (!verification) {
@@ -300,26 +326,26 @@ router.post("/phone/verify", async (req, res): Promise<void> => {
     // Check if code is expired
     if (new Date() > verification.expiresAt) {
       // Delete expired code
-      await prisma.phoneVerification.delete({ where: { phoneNumber } }).catch(() => {});
+      await prisma.phoneVerification.delete({ where: { phoneNumber: normalizedPhone } }).catch(() => {});
       res.status(400).json({ error: "Verification code has expired" });
       return;
     }
 
     // Delete the verification record since it is now successfully verified
     await prisma.phoneVerification.delete({
-      where: { phoneNumber },
+      where: { phoneNumber: normalizedPhone },
     });
 
     // Find or create the user in NeonDB by phoneNumber
     let user = await prisma.user.findUnique({
-      where: { phoneNumber },
+      where: { phoneNumber: normalizedPhone },
     });
 
     if (!user) {
       // Register a new user with just the phone number.
       user = await prisma.user.create({
         data: {
-          phoneNumber,
+          phoneNumber: normalizedPhone,
         },
       });
     }
@@ -342,6 +368,59 @@ router.post("/phone/verify", async (req, res): Promise<void> => {
     });
   } catch (error) {
     console.error("Phone verify OTP error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PUT /api/auth/profile
+router.put("/profile", authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    const { name, email } = req.body;
+
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: "Name is required" });
+      return;
+    }
+
+    const updateData: any = { name: name.trim() };
+
+    if (email) {
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Check if email is already taken by another user
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email: normalizedEmail,
+          NOT: { id: userId },
+        },
+      });
+
+      if (existingUser) {
+        res.status(400).json({ error: "Email is already in use by another account" });
+        return;
+      }
+
+      updateData.email = normalizedEmail;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+    });
+
+    res.json({
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        name: updatedUser.name,
+        createdAt: updatedUser.createdAt,
+        updatedAt: updatedUser.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
