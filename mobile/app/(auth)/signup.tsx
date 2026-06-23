@@ -10,6 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 
 export default function SignUpScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { signUp, signInWithGoogle, isGoogleConfigured } = useAuth();
 
   const [name, setName] = useState('');
