@@ -257,8 +257,11 @@ router.post("/phone/send", async (req, res): Promise<void> => {
       create: { phoneNumber: normalizedPhone, code, expiresAt },
     });
 
+    const disableRealSms = process.env.DISABLE_REAL_SMS === "true";
+    const isMockNumber = normalizedPhone.includes("00000") || normalizedPhone.includes("12345");
+
     // Send the SMS
-    if (twilioClient && twilioPhoneNumber) {
+    if (twilioClient && twilioPhoneNumber && !disableRealSms && !isMockNumber) {
       try {
         await twilioClient.messages.create({
           body: `Your Kryze verification code is: ${code}. It expires in 5 minutes.`,
@@ -282,10 +285,10 @@ router.post("/phone/send", async (req, res): Promise<void> => {
       }
     } else {
       // Console logging fallback
-      console.log(`\n--- [SMS FALLBACK LOG] ---`);
+      console.log(`\n--- [SMS FALLBACK LOG (SIMULATOR/MOCK)] ---`);
       console.log(`To: ${normalizedPhone}`);
       console.log(`Code: ${code}`);
-      console.log(`--------------------------\n`);
+      console.log(`------------------------------------------\n`);
     }
 
     res.json({ message: "Verification code sent successfully" });
