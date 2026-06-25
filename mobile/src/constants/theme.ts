@@ -9,32 +9,67 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    background: '#FAF7F2',
+    surface: '#FFFFFF',
+    surface2: '#F5F0E8',
+    primary: '#C45E3A',
+    primaryDim: '#FAE9E0',
+    primaryText: '#FFFFFF',
+    lent: '#4D9A6A',
+    lentDim: '#EFF4EB',
+    owe: '#D94F2C',
+    oweDim: '#FDEAE6',
+    text: '#3D1F10',
+    text2: '#7A5540',
+    text3: '#B08070',
+    border: 'rgba(61,31,16,0.10)',
+    inputBg: '#FAF7F2',
+    // Preserved compatibility for existing components
+    backgroundElement: '#F5F0E8',
+    backgroundSelected: '#FAE9E0',
+    textSecondary: '#7A5540',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    background: '#141210',
+    surface: '#1D1A14',
+    surface2: '#231F18',
+    primary: '#E8A020',
+    primaryDim: '#2A2010',
+    primaryText: '#1A1300',
+    lent: '#48B87A',
+    lentDim: '#0F2018',
+    owe: '#E86050',
+    oweDim: '#2A1210',
+    text: '#F5EDD6',
+    text2: '#C8B090',
+    text3: '#7A6850',
+    border: 'rgba(245,237,214,0.08)',
+    inputBg: '#231F18',
+    // Preserved compatibility
+    backgroundElement: '#231F18',
+    backgroundSelected: '#2A2010',
+    textSecondary: '#C8B090',
   },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
+export const Typography = {
+  display: 'Fraunces_400Regular_Italic',
+  displayDark: 'LibreBaskerville_400Regular',
+  ui: 'Nunito_500Medium',
+  uiBold: 'Nunito_700Bold',
+  body: 'DMSans_400Regular',
+  bodyMedium: 'DMSans_500Medium',
+  mono: 'GeistMono_500Medium',
+};
+
+// Original Fonts export kept for backwards compatibility if needed
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {
