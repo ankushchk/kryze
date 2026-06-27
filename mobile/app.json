@@ -19,7 +19,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.frontendapp"
+      "package": "com.anonymous.frontendapp",
+      "permissions": [
+        "RECEIVE_SMS",
+        "READ_SMS"
+      ]
     },
     "web": {
       "output": "static",
@@ -48,6 +52,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0274516d-6be6-4959-8947-b21efee9601b"
+      }
+    },
+    "owner": "ankushchk"
   }
 }
