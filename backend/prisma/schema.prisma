@@ -8,14 +8,30 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String?  @unique
-  phoneNumber  String?  @unique
+  id           String             @id @default(uuid()) @db.Uuid
+  email        String?            @unique
+  phoneNumber  String?            @unique
   name         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   passwordHash String?
-  googleId     String?  @unique
+  googleId     String?            @unique
+  drafts       TransactionDraft[]
+}
+
+model TransactionDraft {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sender      String
+  messageBody String
+  merchant    String
+  amount      Float
+  date        DateTime
+  status      String   @default("PENDING") // PENDING, ADDED, IGNORED
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, sender, messageBody, date])
 }
 
 model PhoneVerification {
