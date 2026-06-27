@@ -2,6 +2,7 @@ import express from "express";
 import "dotenv/config";
 import { connectDatabase } from "./config/dbConnect.js";
 import authRouter from "./routes/auth.js";
+import draftsRouter from "./routes/drafts.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
@@ -9,6 +10,7 @@ const port = Number(process.env.PORT ?? 3000);
 app.use(express.json());
 
 app.use("/api/auth", authRouter);
+app.use("/api/drafts", draftsRouter);
 
 app.get("/", (_req, res) => {
   res.json({ message: "Backend is running" });
@@ -27,3 +29,4 @@ async function startServer() {
 }
 
 void startServer();
+
