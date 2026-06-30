@@ -163,8 +163,8 @@ export const listGroups = async (req: AuthRequest, res: Response): Promise<void>
 // POST /api/groups/:id/members
 export const addGroupMember = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id: groupId } = req.params;
-    const { identifier } = req.body; // email or phone number
+    const groupId = req.params.id as string;
+    const identifier = req.body.identifier as string;
     const userId = req.userId!;
 
     if (!identifier || !identifier.trim()) {
@@ -245,11 +245,11 @@ export const addGroupMember = async (req: AuthRequest, res: Response): Promise<v
 // GET /api/groups/:id
 export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id: groupId } = req.params;
+    const groupId = req.params.id as string;
     const userId = req.userId!;
 
     // 1. Fetch group members and details
-    const group = await prisma.group.findUnique({
+    const group = (await prisma.group.findUnique({
       where: { id: groupId },
       include: {
         members: {
@@ -286,7 +286,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
           orderBy: { date: "desc" },
         },
       },
-    });
+    })) as any;
 
     if (!group) {
       res.status(404).json({ error: "Group not found" });
@@ -294,7 +294,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
     }
 
     // Verify requesting user is in this group
-    const membershipCheck = group.members.some((m) => m.userId === userId);
+    const membershipCheck = group.members.some((m: any) => m.userId === userId);
     if (!membershipCheck) {
       res.status(403).json({ error: "Access denied. You are not in this group." });
       return;
@@ -302,17 +302,17 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
 
     // 2. Compute individual balances for each member in the group
     const balances: Record<string, number> = {};
-    group.members.forEach((m) => {
+    group.members.forEach((m: any) => {
       balances[m.userId] = 0;
     });
 
-    group.expenses.forEach((expense) => {
+    group.expenses.forEach((expense: any) => {
       const paidById = expense.paidById;
       if (balances[paidById] !== undefined) {
         balances[paidById] += expense.amount;
       }
 
-      expense.splits.forEach((split) => {
+      expense.splits.forEach((split: any) => {
         const debtorId = split.userId;
         if (balances[debtorId] !== undefined) {
           balances[debtorId] -= split.amount;
@@ -320,7 +320,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
       });
     });
 
-    const membersWithBalances = group.members.map((m) => ({
+    const membersWithBalances = group.members.map((m: any) => ({
       id: m.user.id,
       name: m.user.name || "Unknown Member",
       email: m.user.email,
@@ -334,7 +334,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
     const debtors: { userId: string; name: string; amount: number }[] = [];
     const creditors: { userId: string; name: string; amount: number }[] = [];
 
-    group.members.forEach((m) => {
+    group.members.forEach((m: any) => {
       const bal = balances[m.userId] || 0;
       const mName = m.user.name || "Unknown Member";
       
@@ -401,7 +401,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
 // POST /api/groups/:id/expenses
 export const createExpense = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id: groupId } = req.params;
+    const groupId = req.params.id as string;
     const { description, amount, date, paidById, splits } = req.body;
     const userId = req.userId!;
 
