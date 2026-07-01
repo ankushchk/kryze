@@ -5,7 +5,11 @@ import {
   listGroups,
   addGroupMember,
   getGroupDetails,
-  createExpense
+  createExpense,
+  updateGroup,
+  deleteGroup,
+  removeGroupMember,
+  verifyExpense
 } from "../controllers/groups.js";
 
 const router = Router();
@@ -19,10 +23,22 @@ router.get("/", authenticateToken, listGroups);
 // GET /api/groups/:id
 router.get("/:id", authenticateToken, getGroupDetails);
 
+// PATCH /api/groups/:id
+router.patch("/:id", authenticateToken, updateGroup);
+
+// DELETE /api/groups/:id
+router.delete("/:id", authenticateToken, deleteGroup);
+
 // POST /api/groups/:id/members
 router.post("/:id/members", authenticateToken, addGroupMember);
 
+// DELETE /api/groups/:id/members/:memberId
+router.delete("/:id/members/:memberId", authenticateToken, removeGroupMember);
+
 // POST /api/groups/:id/expenses
 router.post("/:id/expenses", authenticateToken, createExpense);
+
+// PATCH /api/groups/:id/expenses/:expenseId/verify
+router.patch("/:id/expenses/:expenseId/verify", authenticateToken, verifyExpense);
 
 export default router;
