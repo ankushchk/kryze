@@ -16,6 +16,7 @@ model User {
   updatedAt    DateTime           @updatedAt
   passwordHash String?
   googleId     String?            @unique
+  upiId        String?
   drafts       TransactionDraft[]
   memberships  GroupMember[]
   expenses     Expense[]
@@ -49,6 +50,7 @@ model Group {
   id          String        @id @default(uuid()) @db.Uuid
   name        String
   description String?
+  icon        String        @default("friends")
   members     GroupMember[]
   expenses    Expense[]
   createdAt   DateTime      @default(now())
@@ -76,6 +78,8 @@ model Expense {
   description String
   amount      Float
   date        DateTime       @default(now())
+  category    String?
+  status      String         @default("APPROVED")
   splits      ExpenseSplit[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
