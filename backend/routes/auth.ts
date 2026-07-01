@@ -7,10 +7,14 @@ import {
   googleSignIn,
   sendVerificationCode,
   verifyVerificationCode,
-  updateProfile
+  updateProfile,
+  searchUsers
 } from "../controllers/auth.js";
 
 const router = Router();
+
+// GET /api/auth/users/search
+router.get("/users/search", authenticateToken, searchUsers);
 
 // GET /api/auth/me
 router.get("/me", authenticateToken, getMe);

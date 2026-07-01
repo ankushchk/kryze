@@ -342,7 +342,7 @@ export const verifyVerificationCode = async (req: Request, res: Response): Promi
 export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId;
-    const { name, email } = req.body;
+    const { name, email, upiId } = req.body;
 
     if (!name || !name.trim()) {
       res.status(400).json({ error: "Name is required" });
@@ -369,6 +369,10 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
       updateData.email = normalizedEmail;
     }
 
+    if (upiId !== undefined) {
+      updateData.upiId = upiId ? upiId.trim() : null;
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: updateData,
@@ -380,6 +384,7 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
         email: updatedUser.email,
         phoneNumber: updatedUser.phoneNumber,
         name: updatedUser.name,
+        upiId: updatedUser.upiId,
         createdAt: updatedUser.createdAt,
         updatedAt: updatedUser.updatedAt,
       },
@@ -387,5 +392,37 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
   } catch (error) {
     console.error("Update profile error:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// GET /api/auth/users/search
+export const searchUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const q = req.query.q as string;
+    if (!q || !q.trim()) {
+      res.json({ users: [] });
+      return;
+    }
+    const cleanQuery = q.trim().toLowerCase();
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: cleanQuery, mode: 'insensitive' } },
+          { email: { contains: cleanQuery, mode: 'insensitive' } },
+          { phoneNumber: { contains: cleanQuery } },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+      },
+      take: 10,
+    });
+    res.json({ users });
+  } catch (error: any) {
+    console.error("Search users error:", error);
+    res.status(500).json({ error: error.message || "Failed to search users" });
   }
 };

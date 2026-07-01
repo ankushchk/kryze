@@ -11,6 +11,7 @@ export interface AuthRequest extends Request {
     email: string | null;
     phoneNumber: string | null;
     name: string | null;
+    upiId: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -38,6 +39,7 @@ export async function authenticateToken(
         email: true,
         phoneNumber: true,
         name: true,
+        upiId: true,
         createdAt: true,
         updatedAt: true,
       },
