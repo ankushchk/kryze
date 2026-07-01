@@ -9,7 +9,9 @@ import {
   FlatList,
   Modal,
   Animated,
-  Platform
+  Platform,
+  KeyboardAvoidingView,
+  Alert
 } from 'react-native';
 import {
   TrendingDown,
@@ -21,14 +23,15 @@ import {
   Calendar,
   Layers,
   ArrowRight,
-  History
+  History,
+  User
 } from 'lucide-react-native';
 import { useHomeScreen, TransactionDraft } from '@/hooks/useHomeScreen';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
-import { styles } from './index.styles';
+import { styles } from '@/styles/index.styles';
 
 function SkeletonCard() {
   const theme = useTheme();
@@ -73,6 +76,7 @@ export default function HomeScreen() {
   const {
     user,
     signOut,
+    updateProfile,
     drafts,
     loading,
     syncingInbox,
@@ -100,8 +104,45 @@ export default function HomeScreen() {
     todaySpent,
     monthSpent,
     pendingCount,
-    filteredDrafts
+    filteredDrafts,
+    groups,
+    selectedGroupId,
+    setSelectedGroupId
   } = useHomeScreen();
+
+  const [showProfileModal, setShowProfileModal] = React.useState(false);
+  const [profileName, setProfileName] = React.useState(user?.name || '');
+  const [profileEmail, setProfileEmail] = React.useState(user?.email || '');
+  const [profileUpi, setProfileUpi] = React.useState(user?.upiId || '');
+  const [submittingProfile, setSubmittingProfile] = React.useState(false);
+
+  React.useEffect(() => {
+    if (showProfileModal && user) {
+      setProfileName(user.name || '');
+      setProfileEmail(user.email || '');
+      setProfileUpi(user.upiId || '');
+    }
+  }, [showProfileModal, user]);
+
+  const handleSaveProfile = async () => {
+    if (!profileName.trim()) {
+      Alert.alert('Error', 'Name is required');
+      return;
+    }
+    setSubmittingProfile(true);
+    const { error } = await updateProfile(
+      profileName.trim(),
+      profileEmail.trim() || undefined,
+      profileUpi.trim() || undefined
+    );
+    setSubmittingProfile(false);
+    if (error) {
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    } else {
+      setShowProfileModal(false);
+      Alert.alert('Success', 'Profile updated successfully');
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -136,7 +177,13 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.headerBtn, { backgroundColor: theme.surface2 }]}
+            style={[styles.headerBtn, { backgroundColor: theme.surface2, marginRight: 8 }]}
+            onPress={() => setShowProfileModal(true)}
+          >
+            <User size={18} color={theme.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.headerBtn, { backgroundColor: theme.surface2, marginRight: 8 }]}
             onPress={() => {
               fetchDrafts(true);
             }}
@@ -379,87 +426,205 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Review & Add/Ignore Modal Details Sheet */}
       <Modal
         visible={showReviewModal}
         animationType="slide"
         transparent={true}
         onRequestClose={() => setShowReviewModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-            <View style={styles.modalHeader}>
-              <ThemedText type="subtitle" style={styles.modalTitle}>
-                Review Transaction
-              </ThemedText>
-              <TouchableOpacity
-                style={styles.closeBtn}
-                onPress={() => setShowReviewModal(false)}
-              >
-                <X size={20} color={theme.text} />
-              </TouchableOpacity>
-            </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+              <View style={styles.modalHeader}>
+                <ThemedText type="subtitle" style={styles.modalTitle}>
+                  Review Transaction
+                </ThemedText>
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={() => setShowReviewModal(false)}
+                >
+                  <X size={20} color={theme.text} />
+                </TouchableOpacity>
+              </View>
 
-            {selectedDraft && (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <View style={[styles.rawMsgContainer, { backgroundColor: theme.surface2, borderColor: theme.border }]}>
-                  <Text style={[styles.rawMsgHeader, { color: theme.primary }]}>
-                    SMS SENDER: {selectedDraft.sender}
-                  </Text>
-                  <Text style={[styles.rawMsgText, { color: theme.textSecondary }]}>
-                    &ldquo;{selectedDraft.messageBody}&rdquo;
-                  </Text>
-                </View>
+              {selectedDraft && (
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <View style={[styles.rawMsgContainer, { backgroundColor: theme.surface2, borderColor: theme.border }]}>
+                    <Text style={[styles.rawMsgHeader, { color: theme.primary }]}>
+                      SMS SENDER: {selectedDraft.sender}
+                    </Text>
+                    <Text style={[styles.rawMsgText, { color: theme.textSecondary }]}>
+                      &ldquo;{selectedDraft.messageBody}&rdquo;
+                    </Text>
+                  </View>
 
-                {/* Form fields */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.inputLabel, { color: theme.text }]}>Merchant Name</Text>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
-                    value={editMerchant}
-                    onChangeText={setEditMerchant}
-                    placeholder="e.g. Zomato, Gas Fuel"
-                    placeholderTextColor={theme.text3}
-                  />
-                </View>
+                  {/* Form fields */}
+                  <View style={styles.formGroup}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Log To / Split In</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupChipsContainer}>
+                      <TouchableOpacity
+                        style={[
+                          styles.groupChip,
+                          { borderColor: theme.border },
+                          selectedGroupId === 'personal' && { backgroundColor: theme.primaryDim, borderColor: theme.primary }
+                        ]}
+                        onPress={() => setSelectedGroupId('personal')}
+                      >
+                        <Text style={[styles.groupChipText, { color: selectedGroupId === 'personal' ? theme.primary : theme.text }]}>
+                          👤 Personal
+                        </Text>
+                      </TouchableOpacity>
 
-                <View style={styles.formGroup}>
-                  <Text style={[styles.inputLabel, { color: theme.text }]}>Amount (INR)</Text>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
-                    value={editAmount}
-                    onChangeText={setEditAmount}
-                    keyboardType="numeric"
-                    placeholder="e.g. 500"
-                    placeholderTextColor={theme.text3}
-                  />
-                </View>
+                      {groups.map((g) => (
+                        <TouchableOpacity
+                          key={g.id}
+                          style={[
+                            styles.groupChip,
+                            { borderColor: theme.border },
+                            selectedGroupId === g.id && { backgroundColor: theme.primaryDim, borderColor: theme.primary }
+                          ]}
+                          onPress={() => setSelectedGroupId(g.id)}
+                        >
+                          <Text style={[styles.groupChipText, { color: selectedGroupId === g.id ? theme.primary : theme.text }]}>
+                            👥 {g.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
 
-                {/* Actions button */}
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: theme.lent }]}
-                    onPress={() => handleUpdateDraft('ADDED')}
-                    disabled={loading}
-                  >
-                    <Check size={18} color="#FFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.actionBtnText}>Add Expense</Text>
-                  </TouchableOpacity>
+                  <View style={styles.formGroup}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Merchant Name</Text>
+                    <TextInput
+                      style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                      value={editMerchant}
+                      onChangeText={setEditMerchant}
+                      placeholder="e.g. Zomato, Gas Fuel"
+                      placeholderTextColor={theme.text3}
+                    />
+                  </View>
 
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: theme.owe }]}
-                    onPress={() => handleUpdateDraft('IGNORED')}
-                    disabled={loading}
-                  >
-                    <X size={18} color="#FFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.actionBtnText}>Ignore Draft</Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            )}
-          </ThemedView>
-        </View>
+                  <View style={styles.formGroup}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Amount (INR)</Text>
+                    <TextInput
+                      style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                      value={editAmount}
+                      onChangeText={setEditAmount}
+                      keyboardType="numeric"
+                      placeholder="e.g. 500"
+                      placeholderTextColor={theme.text3}
+                    />
+                  </View>
+
+                  {/* Actions button */}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: theme.lent }]}
+                      onPress={() => handleUpdateDraft('ADDED')}
+                      disabled={loading}
+                    >
+                      <Check size={18} color="#FFF" style={{ marginRight: 6 }} />
+                      <Text style={styles.actionBtnText}>Add Expense</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: theme.owe }]}
+                      onPress={() => handleUpdateDraft('IGNORED')}
+                      disabled={loading}
+                    >
+                      <X size={18} color="#FFF" style={{ marginRight: 6 }} />
+                      <Text style={styles.actionBtnText}>Ignore Draft</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              )}
+            </ThemedView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
+
+      {/* Profile Settings Modal */}
+      <Modal
+        visible={showProfileModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+              <View style={styles.modalHeader}>
+                <ThemedText type="subtitle" style={styles.modalTitle}>
+                  Profile Settings
+                </ThemedText>
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={() => setShowProfileModal(false)}
+                >
+                  <X size={20} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.formGroup}>
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Full Name</Text>
+                  <TextInput
+                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                    value={profileName}
+                    onChangeText={setProfileName}
+                    placeholder="Enter your name"
+                    placeholderTextColor={theme.text3}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Email (Optional)</Text>
+                  <TextInput
+                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                    value={profileEmail}
+                    onChangeText={setProfileEmail}
+                    keyboardType="email-address"
+                    placeholder="name@example.com"
+                    placeholderTextColor={theme.text3}
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>UPI ID (for group settlements)</Text>
+                  <TextInput
+                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                    value={profileUpi}
+                    onChangeText={setProfileUpi}
+                    placeholder="username@okhdfcbank"
+                    placeholderTextColor={theme.text3}
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.submitProfileBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleSaveProfile}
+                  disabled={submittingProfile}
+                >
+                  {submittingProfile ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Text style={styles.submitProfileBtnText}>Save Profile Settings</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </ThemedView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {toastMessage && (
         <Animated.View
           style={[

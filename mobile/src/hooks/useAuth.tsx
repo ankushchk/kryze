@@ -7,6 +7,7 @@ export type AppUser = {
   email: string | null;
   phoneNumber: string | null;
   name: string | null;
+  upiId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -20,7 +21,7 @@ type AuthContextType = {
   signInWithGoogle: (idToken: string) => Promise<{ error: Error | null }>;
   sendPhoneOTP: (phoneNumber: string) => Promise<{ error: Error | null }>;
   verifyPhoneOTP: (phoneNumber: string, code: string) => Promise<{ error: Error | null }>;
-  updateProfile: (name: string, email?: string) => Promise<{ error: Error | null }>;
+  updateProfile: (name: string, email?: string, upiId?: string) => Promise<{ error: Error | null }>;
   signUp: (name: string, email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
@@ -180,11 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateProfile = async (name: string, email?: string) => {
+  const updateProfile = async (name: string, email?: string, upiId?: string) => {
     try {
       const response = await apiRequest('/api/auth/profile', {
         method: 'PUT',
-        body: { name, email },
+        body: { name, email, upiId },
       });
 
       if (response?.user) {

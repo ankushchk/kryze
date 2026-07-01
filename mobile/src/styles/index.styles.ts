@@ -415,4 +415,32 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  groupChipsContainer: {
+    paddingVertical: 4,
+  },
+  groupChip: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groupChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  submitProfileBtn: {
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Spacing.two,
+  },
+  submitProfileBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
 });

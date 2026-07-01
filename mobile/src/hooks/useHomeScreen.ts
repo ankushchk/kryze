@@ -6,13 +6,24 @@ import {
   DeviceEventEmitter,
   LayoutAnimation,
   Animated,
-  Alert
+  Alert,
+  Keyboard
 } from 'react-native';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { apiRequest } from '@/lib/api';
 import { isTransactionSms, parseTransactionSms } from '@/lib/smsParser';
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export type TransactionDraft = {
   id: string;
@@ -26,8 +37,9 @@ export type TransactionDraft = {
 };
 
 export function useHomeScreen() {
-  const { user, signOut, session } = useAuth();
+  const { user, signOut, session, updateProfile } = useAuth();
   const navigation = useNavigation();
+  const router = useRouter();
 
   // Data States
   const [dbTransactions, setDbTransactions] = useState<TransactionDraft[]>([]);
@@ -53,6 +65,11 @@ export function useHomeScreen() {
   const [editMerchant, setEditMerchant] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState('personal');
+
+  // Push Notifications handling states
+  const [draftToOpen, setDraftToOpen] = useState<string | null>(null);
 
   const showToast = (msg: string, type: 'info' | 'success' | 'error' = 'info') => {
     setToastMessage(msg);
@@ -73,6 +90,18 @@ export function useHomeScreen() {
     ]).start(() => {
       setToastMessage(null);
     });
+  };
+
+  const fetchGroups = async () => {
+    if (!session) return;
+    try {
+      const response = await apiRequest('/api/groups');
+      if (response && response.groups) {
+        setGroups(response.groups);
+      }
+    } catch (err) {
+      console.error('Failed to fetch groups in useHomeScreen:', err);
+    }
   };
 
   // Fetch all transaction drafts from backend
@@ -180,10 +209,12 @@ export function useHomeScreen() {
     if (!session) return;
     const timer = setTimeout(() => {
       fetchDrafts();
+      fetchGroups();
     }, 0);
 
     const unsubscribe = navigation.addListener('focus', () => {
       fetchDrafts();
+      fetchGroups();
     });
 
     return () => {
@@ -191,6 +222,102 @@ export function useHomeScreen() {
       unsubscribe();
     };
   }, [navigation, session]);
+
+  // Configure notification categories & interactions listener
+  useEffect(() => {
+    const configureNotifications = async () => {
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('Notification permission not granted.');
+        }
+
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7A',
+          });
+        }
+
+        // Define alert categories with action buttons
+        await Notifications.setNotificationCategoryAsync('sms_transaction', [
+          {
+            identifier: 'split_group',
+            buttonTitle: 'Split in Group 👥',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'create_group',
+            buttonTitle: 'Create New Group ➕',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'ignore',
+            buttonTitle: 'Ignore ✕',
+            options: { opensAppToForeground: false },
+          }
+        ]);
+      } catch (err) {
+        console.warn('Failed to configure notifications:', err);
+      }
+    };
+    
+    configureNotifications();
+
+    // Listen to notification interactions
+    const responseListener = Notifications.addNotificationResponseReceivedListener((response) => {
+      const draftId = response.notification.request.content.data?.draftId as string | undefined;
+      const actionIdentifier = response.actionIdentifier;
+      
+      if (draftId) {
+        if (actionIdentifier === 'split_group' || actionIdentifier === 'expo.modules.notifications.actions.DEFAULT') {
+          setDraftToOpen(draftId);
+        } else if (actionIdentifier === 'create_group') {
+          router.push({ pathname: '/explore', params: { createDraftId: draftId } });
+        } else if (actionIdentifier === 'ignore') {
+          setLocalDrafts(prev => prev.filter(d => d.id !== draftId));
+          apiRequest(`/api/drafts/${draftId}`, {
+            method: 'PATCH',
+            body: { status: 'IGNORED' }
+          }).catch(err => console.warn('Failed to ignore from action:', err));
+        }
+      }
+    });
+
+    return () => {
+      responseListener.remove();
+    };
+  }, []);
+
+  // Direct open trigger listener
+  useEffect(() => {
+    if (draftToOpen && drafts.length > 0) {
+      const match = drafts.find(d => d.id === draftToOpen);
+      if (match) {
+        openReviewModal(match);
+        setDraftToOpen(null);
+      }
+    }
+  }, [draftToOpen, drafts]);
+
+  const triggerSmsNotification = async (draft: TransactionDraft) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `💸 Transaction Detected: ${draft.merchant}`,
+          body: `Spent ₹${draft.amount}. Tap to split in a group or log expense.`,
+          categoryIdentifier: 'sms_transaction',
+          data: { draftId: draft.id },
+          ...(Platform.OS === 'android' ? { channelId: 'default' } : {})
+        },
+        trigger: null,
+      });
+    } catch (err) {
+      console.warn('Failed to schedule local notification:', err);
+    }
+  };
 
   // Android background SMS listener setup
   useEffect(() => {
@@ -271,6 +398,7 @@ export function useHomeScreen() {
               setLocalDrafts(prev => {
                 const exists = prev.some(d => d.sender === sender && d.messageBody === messageBody);
                 if (exists) return prev;
+                triggerSmsNotification(localDraft);
                 return [localDraft, ...prev];
               });
             }
@@ -415,22 +543,26 @@ export function useHomeScreen() {
     setLoading(true);
     try {
       const { merchant, amount } = parseTransactionSms(textToImport);
-      const newLocalDraft: TransactionDraft = {
-        id: `local-manual-${Date.now()}-${Math.random()}`,
-        sender: 'MANUAL_IMPORT',
-        messageBody: textToImport.trim(),
-        merchant,
-        amount,
-        date: new Date().toISOString() as any,
-        status: 'PENDING',
-        createdAt: new Date().toISOString()
-      };
+      const response = await apiRequest('/api/drafts', {
+        method: 'POST',
+        body: {
+          sender: 'MANUAL_IMPORT',
+          messageBody: textToImport.trim(),
+          merchant,
+          amount,
+          date: new Date().toISOString(),
+          status: 'PENDING'
+        }
+      });
 
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setLocalDrafts(prev => [newLocalDraft, ...prev]);
-      setRawSmsInput('');
-      setIsPastingExpanded(false);
-      showToast('SMS imported successfully!', 'success');
+      if (response && response.draft) {
+        Keyboard.dismiss();
+        setRawSmsInput('');
+        setIsPastingExpanded(false);
+        triggerSmsNotification(response.draft);
+        showToast('SMS imported successfully!', 'success');
+        setDbTransactions(prev => [response.draft, ...prev]);
+      }
     } catch (err: any) {
       showToast(err.message || 'Could not parse SMS', 'error');
     } finally {
@@ -446,6 +578,8 @@ export function useHomeScreen() {
       return;
     }
 
+    Keyboard.dismiss();
+
     const draftToUpdate = { ...selectedDraft };
     const newMerchant = editMerchant.trim() || draftToUpdate.merchant;
     const isLocal = draftToUpdate.id.startsWith('local-');
@@ -455,8 +589,6 @@ export function useHomeScreen() {
 
     const backupDb = [...dbTransactions];
     const backupLocal = [...localDrafts];
-
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     if (isLocal) {
       setLocalDrafts(prev => prev.filter(d => d.id !== draftToUpdate.id));
       
@@ -480,6 +612,34 @@ export function useHomeScreen() {
     showToast(status === 'ADDED' ? 'Expense logged!' : 'Draft ignored', 'success');
 
     try {
+      if (status === 'ADDED' && selectedGroupId !== 'personal') {
+        const targetGroup = groups.find((g) => g.id === selectedGroupId);
+        if (targetGroup) {
+          const membersList = targetGroup.members || [];
+          const count = membersList.length;
+          if (count > 0) {
+            const equalShare = Math.round((parsedAmount / count) * 100) / 100;
+            const splits: any[] = [];
+            let sum = 0;
+            membersList.forEach((m: any, idx: number) => {
+              const share = idx === count - 1 ? parsedAmount - sum : equalShare;
+              sum += share;
+              splits.push({ userId: m.id, amount: Math.round(share * 100) / 100 });
+            });
+
+            await apiRequest(`/api/groups/${selectedGroupId}/expenses`, {
+              method: 'POST',
+              body: {
+                description: newMerchant,
+                amount: parsedAmount,
+                paidById: user?.id,
+                splits,
+              },
+            });
+          }
+        }
+      }
+
       if (isLocal) {
         await apiRequest('/api/drafts', {
           method: 'POST',
@@ -559,6 +719,7 @@ export function useHomeScreen() {
   return {
     user,
     signOut,
+    updateProfile,
     drafts,
     loading,
     syncingInbox,
@@ -586,6 +747,9 @@ export function useHomeScreen() {
     todaySpent,
     monthSpent,
     pendingCount,
-    filteredDrafts
+    filteredDrafts,
+    groups,
+    selectedGroupId,
+    setSelectedGroupId
   };
 }
