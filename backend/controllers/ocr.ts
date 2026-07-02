@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
+import { uploadToCloudinary } from '../config/cloudinary.js';
 
 export const processReceiptOCR = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -14,6 +15,9 @@ export const processReceiptOCR = async (req: Request, res: Response): Promise<vo
       res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the backend server' });
       return;
     }
+
+    // Trigger Cloudinary upload in parallel or prior to Gemini to get secure URL
+    const receiptUrl = await uploadToCloudinary(file.buffer);
 
     const ai = new GoogleGenAI({ apiKey });
 
@@ -61,7 +65,10 @@ Return a structured JSON object. Ensure amount is a number and date is formatted
 
     res.json({
       success: true,
-      data: parsedData,
+      data: {
+        ...parsedData,
+        receiptUrl,
+      },
     });
   } catch (error: any) {
     console.error('OCR Processing Error:', error);

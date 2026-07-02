@@ -515,7 +515,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
 export const createExpense = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const groupId = req.params.id as string;
-    const { description, amount, date, paidById, splits, category, status } = req.body;
+    const { description, amount, date, paidById, splits, category, status, receiptUrl } = req.body;
     const userId = req.userId!;
 
     if (!description || !description.trim()) {
@@ -575,6 +575,7 @@ export const createExpense = async (req: AuthRequest, res: Response): Promise<vo
           date: date ? new Date(date) : new Date(),
           category: category ? category.trim() : null,
           status: status && typeof status === "string" ? status.trim() : "APPROVED",
+          receiptUrl: receiptUrl && typeof receiptUrl === "string" ? receiptUrl.trim() : null,
         },
       });
 

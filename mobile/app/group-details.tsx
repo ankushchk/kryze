@@ -4,6 +4,7 @@ import {
   StyleSheet,
   View,
   Text,
+  Image,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
@@ -92,6 +93,7 @@ type GroupExpense = {
   date: string;
   category?: string | null;
   status?: string;
+  receiptUrl?: string | null;
   paidById: string;
   paidBy: {
     id: string;
@@ -166,6 +168,8 @@ export default function GroupDetailsScreen() {
   const [submittingExpense, setSubmittingExpense] = useState(false);
   const [monthFilter, setMonthFilter] = useState('All');
   const [scanning, setScanning] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [selectedReceiptImage, setSelectedReceiptImage] = useState<string | null>(null);
 
   // Add Member Modal States
   const [memberModalVisible, setMemberModalVisible] = useState(false);
@@ -411,11 +415,12 @@ export default function GroupDetailsScreen() {
       }
 
       if (responseData.success && responseData.data) {
-        const { merchant, amount, date, category } = responseData.data;
+        const { merchant, amount, date, category, receiptUrl: parsedUrl } = responseData.data;
         if (merchant) setDescription(merchant);
         if (amount) setAmount(amount.toString());
         if (date) setExpenseDate(date);
         if (category) setExpenseCategory(category);
+        if (parsedUrl) setReceiptUrl(parsedUrl);
         Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
       }
     } catch (err: any) {
@@ -485,6 +490,7 @@ export default function GroupDetailsScreen() {
           splits,
           category: expenseCategory,
           date: expenseDate,
+          receiptUrl,
         },
       });
 
@@ -492,6 +498,7 @@ export default function GroupDetailsScreen() {
         setExpenseModalVisible(false);
         setDescription('');
         setAmount('');
+        setReceiptUrl(null);
         setCustomSplits({});
         setExpenseCategory('Food');
         setExpenseDate(new Date().toISOString().split('T')[0]);
@@ -1003,6 +1010,37 @@ export default function GroupDetailsScreen() {
                     )}
                   </View>
                 )}
+
+                {/* Receipt Attachment Row */}
+                {exp.receiptUrl && (
+                  <View style={{
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTopWidth: 1,
+                    borderTopColor: theme.border,
+                    flexDirection: 'row',
+                    alignItems: 'center'
+                  }}>
+                    <TouchableOpacity
+                      onPress={() => setSelectedReceiptImage(exp.receiptUrl ?? null)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: theme.primaryDim,
+                        borderRadius: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderWidth: 1,
+                        borderColor: theme.primary + '40'
+                      }}
+                    >
+                      <Camera size={11} color={theme.primary} style={{ marginRight: 5 }} />
+                      <Text style={{ fontSize: 10, color: theme.primary, fontFamily: Typography.uiBold }}>
+                        View Receipt
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             );
           }}
@@ -1273,6 +1311,44 @@ export default function GroupDetailsScreen() {
                     ))}
                   </ScrollView>
                 </View>
+
+                {receiptUrl && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 12,
+                    backgroundColor: theme.primaryDim,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: theme.primary + '40',
+                    marginHorizontal: 16,
+                    marginBottom: 14
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 11,
+                        backgroundColor: theme.primary + '20',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: 8
+                      }}>
+                        <Check size={12} color={theme.primary} />
+                      </View>
+                      <Text style={{ fontSize: 13, color: theme.primary, flex: 1, fontFamily: Typography.uiBold }} numberOfLines={1}>
+                        Receipt Attached
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setReceiptUrl(null)}
+                      style={{ padding: 4 }}
+                    >
+                      <X size={16} color={theme.primary} />
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 <View style={styles.formGroup}>
                   <Text style={[styles.inputLabel, { color: theme.text }]}>Description</Text>
@@ -1832,6 +1908,55 @@ export default function GroupDetailsScreen() {
                processingStep === 'SUCCESS' ? 'Waiting for peer confirmation' : ''}
             </Text>
           </View>
+        </View>
+      </Modal>
+
+      {/* Fullscreen Receipt Viewer Modal */}
+      <Modal
+        visible={!!selectedReceiptImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedReceiptImage(null)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.92)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <TouchableOpacity
+            onPress={() => setSelectedReceiptImage(null)}
+            style={{
+              position: 'absolute',
+              top: 56,
+              right: 20,
+              zIndex: 10,
+              backgroundColor: 'rgba(255,255,255,0.12)',
+              borderRadius: 20,
+              padding: 8,
+            }}
+          >
+            <X size={22} color="#FFF" />
+          </TouchableOpacity>
+
+          <Text style={{
+            position: 'absolute',
+            top: 62,
+            left: 20,
+            color: 'rgba(255,255,255,0.7)',
+            fontFamily: Typography.uiBold,
+            fontSize: 14,
+          }}>
+            Receipt
+          </Text>
+
+          {selectedReceiptImage && (
+            <Image
+              source={{ uri: selectedReceiptImage }}
+              style={{ width: '92%', height: '72%', borderRadius: 16 }}
+              resizeMode="contain"
+            />
+          )}
         </View>
       </Modal>
     </ThemedView>

@@ -80,6 +80,7 @@ model Expense {
   date        DateTime       @default(now())
   category    String?
   status      String         @default("APPROVED")
+  receiptUrl  String?
   splits      ExpenseSplit[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
