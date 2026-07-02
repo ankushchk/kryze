@@ -14,7 +14,8 @@ import {
   KeyboardAvoidingView,
   Share,
   Linking,
-  Animated
+  Animated,
+  RefreshControl
 } from 'react-native';
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -180,6 +181,7 @@ export default function GroupDetailsScreen() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [processingStep, setProcessingStep] = useState<'SENDING' | 'SECURING' | 'SUCCESS'>('SENDING');
   const pulseAnim = React.useRef(new Animated.Value(0)).current;
+  const [refreshing, setRefreshing] = useState(false);
   const [localContacts, setLocalContacts] = useState<any[]>([]);
   const [filteredLocalContacts, setFilteredLocalContacts] = useState<any[]>([]);
 
@@ -222,6 +224,17 @@ export default function GroupDetailsScreen() {
       Alert.alert('Error', err.message || 'Failed to load details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchGroupDetails(false);
+    } catch (err) {
+      console.error('Refresh error:', err);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -672,11 +685,11 @@ export default function GroupDetailsScreen() {
             })()}
           </ScrollView>
         </View>
-      )}
-
-      {activeTab === 'EXPENSES' ? (
+      )}      {activeTab === 'EXPENSES' ? (
         /* Tab 1: Expenses Timeline */
         <FlatList
+          refreshing={refreshing}
+          onRefresh={onRefresh}
           data={expenses.filter(e => {
             if (monthFilter === 'All') return true;
             const monthName = new Date(e.date).toLocaleDateString('en-US', { month: 'short' });
@@ -920,7 +933,17 @@ export default function GroupDetailsScreen() {
         />
       ) : (
         /* Tab 2: Balances & Simplified Debts */
-        <ScrollView contentContainerStyle={styles.listContent}>
+        <ScrollView 
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.primary]}
+              tintColor={theme.primary}
+            />
+          }
+        >
           {/* Members Balances List */}
           <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Members Status</Text>
           <View style={[styles.sectionBox, { backgroundColor: theme.surface }]}>
