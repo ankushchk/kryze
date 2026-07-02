@@ -13,8 +13,10 @@ import {
   Platform,
   KeyboardAvoidingView,
   Share,
-  Linking
+  Linking,
+  Animated
 } from 'react-native';
+
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import * as Contacts from 'expo-contacts/legacy';
@@ -175,10 +177,28 @@ export default function GroupDetailsScreen() {
   const [submittingSettle, setSubmittingSettle] = useState(false);
   const [inputUpi, setInputUpi] = useState('');
   const [submittingUpi, setSubmittingUpi] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [processingStep, setProcessingStep] = useState<'SENDING' | 'SECURING' | 'SUCCESS'>('SENDING');
+  const pulseAnim = React.useRef(new Animated.Value(0)).current;
   const [localContacts, setLocalContacts] = useState<any[]>([]);
   const [filteredLocalContacts, setFilteredLocalContacts] = useState<any[]>([]);
 
-
+  useEffect(() => {
+    if (isProcessingPayment) {
+      pulseAnim.setValue(0);
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(0);
+    }
+  }, [isProcessingPayment]);
 
   const fetchGroupDetails = async (showIndicator = true) => {
     if (!session || !groupId) return;
@@ -421,7 +441,7 @@ export default function GroupDetailsScreen() {
           'No UPI payment apps (like GPay, PhonePe, Paytm) are installed or registered to open this link. Would you like to record a manual payment anyway?',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Log Manually', onPress: () => handleSettleUp('APPROVED') }
+            { text: 'Log Manually', onPress: () => handleSettleUp('PENDING_VERIFICATION') }
           ]
         );
       }
@@ -433,7 +453,7 @@ export default function GroupDetailsScreen() {
         'Could not redirect to UPI app. Record manual settlement?',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Log Manually', onPress: () => handleSettleUp('APPROVED') }
+          { text: 'Log Manually', onPress: () => handleSettleUp('PENDING_VERIFICATION') }
         ]
       );
     }
@@ -464,11 +484,16 @@ export default function GroupDetailsScreen() {
     }
   };
 
-  const handleSettleUp = async (status = 'APPROVED') => {
+  const handleSettleUp = async (status = 'PENDING_VERIFICATION') => {
     if (!selectedDebt) return;
 
     setSubmittingSettle(true);
+    setIsProcessingPayment(true);
+    setProcessingStep('SENDING');
+
     try {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
       const response = await apiRequest(`/api/groups/${groupId}/expenses`, {
         method: 'POST',
         body: {
@@ -483,12 +508,22 @@ export default function GroupDetailsScreen() {
       });
 
       if (response && response.expense) {
+        setProcessingStep('SECURING');
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        
+        setProcessingStep('SUCCESS');
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+
+        setIsProcessingPayment(false);
         setSettleModalVisible(false);
         setSelectedDebt(null);
         fetchGroupDetails(false);
-        Alert.alert('Settled', 'Settlement recorded successfully!');
+      } else {
+        setIsProcessingPayment(false);
+        Alert.alert('Settle Failed', 'Could not record settlement');
       }
     } catch (err: any) {
+      setIsProcessingPayment(false);
       Alert.alert('Settle Failed', err.message || 'Verification failure');
     } finally {
       setSubmittingSettle(false);
@@ -496,19 +531,27 @@ export default function GroupDetailsScreen() {
   };
 
   const handleVerifyReceipt = async (expenseId: string) => {
+    setIsProcessingPayment(true);
+    setProcessingStep('SENDING');
     try {
+      await new Promise((resolve) => setTimeout(resolve, 800));
       const response = await apiRequest(`/api/groups/${groupId}/expenses/${expenseId}/verify`, {
         method: 'PATCH',
       });
       if (response && response.expense) {
+        setProcessingStep('SUCCESS');
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        setIsProcessingPayment(false);
         fetchGroupDetails(false);
-        Alert.alert('Verified', 'Settlement verified successfully!');
+      } else {
+        setIsProcessingPayment(false);
+        Alert.alert('Verification Failed', 'Could not verify payment');
       }
     } catch (err: any) {
+      setIsProcessingPayment(false);
       Alert.alert('Verification Failed', err.message || 'Could not verify payment');
     }
   };
-
   if (loading && !group) {
     return (
       <ThemedView style={styles.loadingScreen}>
@@ -1515,10 +1558,9 @@ export default function GroupDetailsScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
-
                   <TouchableOpacity
                     style={{ marginTop: 14, alignSelf: 'center', padding: 4 }}
-                    onPress={() => handleSettleUp('APPROVED')}
+                    onPress={() => handleSettleUp('PENDING_VERIFICATION')}
                     disabled={submittingSettle}
                   >
                     <Text style={{ fontSize: 12, color: theme.textSecondary, textDecorationLine: 'underline' }}>
@@ -1531,11 +1573,129 @@ export default function GroupDetailsScreen() {
           </ThemedView>
         </View>
       </Modal>
+
+      {/* Transaction Processing Overlay Modal */}
+      <Modal
+        visible={isProcessingPayment}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 24
+        }}>
+          <View style={{
+            width: 260,
+            backgroundColor: theme.surface,
+            borderRadius: 20,
+            padding: 24,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            elevation: 5
+          }}>
+            {/* Animated Pulse Loop Container */}
+            <View style={{ width: 120, height: 120, justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              {processingStep !== 'SUCCESS' ? (
+                <>
+                  <Animated.View style={{
+                    position: 'absolute',
+                    width: 90,
+                    height: 90,
+                    borderRadius: 45,
+                    borderWidth: 2,
+                    borderColor: theme.primary,
+                    opacity: pulseAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 0]
+                    }),
+                    transform: [{
+                      scale: pulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.4]
+                      })
+                    }]
+                  }} />
+                  <Animated.View style={{
+                    position: 'absolute',
+                    width: 70,
+                    height: 70,
+                    borderRadius: 35,
+                    borderWidth: 2,
+                    borderColor: theme.owe,
+                    opacity: pulseAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.8, 0]
+                    }),
+                    transform: [{
+                      scale: pulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.9, 1.6]
+                      })
+                    }]
+                  }} />
+                  <View style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: theme.surface2,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: theme.border
+                  }}>
+                    <DollarSign size={24} color={theme.primary} />
+                  </View>
+                </>
+              ) : (
+                <View style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: 36,
+                  backgroundColor: theme.lentDim,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: theme.lent
+                }}>
+                  <Check size={36} color={theme.lent} />
+                </View>
+              )}
+            </View>
+
+            {/* Dynamic Status Text */}
+            <Text style={{
+              fontSize: 16,
+              fontFamily: Typography.uiBold,
+              color: theme.text,
+              textAlign: 'center',
+              marginBottom: 8
+            }}>
+              {processingStep === 'SENDING' && 'Sending Request...'}
+              {processingStep === 'SECURING' && 'Securing Ledger...'}
+              {processingStep === 'SUCCESS' && 'Settlement Logged!'}
+            </Text>
+
+            <Text style={{
+              fontSize: 12,
+              fontFamily: Typography.ui,
+              color: theme.textSecondary,
+              textAlign: 'center'
+            }}>
+              {processingStep === 'SENDING' && 'Posting transaction to server'}
+              {processingStep === 'SECURING' && 'Awaiting peer-to-peer verification'}
+              {processingStep === 'SUCCESS' && 'Waiting for peer confirmation'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
-
-
 
 const styles = StyleSheet.create({
   container: {
