@@ -685,7 +685,8 @@ export default function GroupDetailsScreen() {
             })()}
           </ScrollView>
         </View>
-      )}      {activeTab === 'EXPENSES' ? (
+      )}
+      {activeTab === 'EXPENSES' ? (
         /* Tab 1: Expenses Timeline */
         <FlatList
           refreshing={refreshing}
@@ -1712,7 +1713,8 @@ export default function GroupDetailsScreen() {
               {processingStep === 'SENDING' ? 'Posting transaction to server' : 
                processingStep === 'SECURING' ? 'Awaiting peer-to-peer verification' : 
                processingStep === 'SUCCESS' ? 'Waiting for peer confirmation' : ''}
-            </Text></View>
+            </Text>
+          </View>
         </View>
       </Modal>
     </ThemedView>
