@@ -1698,9 +1698,9 @@ export default function GroupDetailsScreen() {
               textAlign: 'center',
               marginBottom: 8
             }}>
-              {processingStep === 'SENDING' && 'Sending Request...'}
-              {processingStep === 'SECURING' && 'Securing Ledger...'}
-              {processingStep === 'SUCCESS' && 'Settlement Logged!'}
+              {processingStep === 'SENDING' ? 'Sending Request...' : 
+               processingStep === 'SECURING' ? 'Securing Ledger...' : 
+               processingStep === 'SUCCESS' ? 'Settlement Logged!' : ''}
             </Text>
 
             <Text style={{
@@ -1709,11 +1709,10 @@ export default function GroupDetailsScreen() {
               color: theme.textSecondary,
               textAlign: 'center'
             }}>
-              {processingStep === 'SENDING' && 'Posting transaction to server'}
-              {processingStep === 'SECURING' && 'Awaiting peer-to-peer verification'}
-              {processingStep === 'SUCCESS' && 'Waiting for peer confirmation'}
-            </Text>
-          </View>
+              {processingStep === 'SENDING' ? 'Posting transaction to server' : 
+               processingStep === 'SECURING' ? 'Awaiting peer-to-peer verification' : 
+               processingStep === 'SUCCESS' ? 'Waiting for peer confirmation' : ''}
+            </Text></View>
         </View>
       </Modal>
     </ThemedView>
