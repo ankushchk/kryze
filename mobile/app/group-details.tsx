@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import {
   StyleSheet,
   View,
@@ -44,7 +45,8 @@ import {
   ShoppingBag,
   Package,
   Settings,
-  Plane
+  Plane,
+  Camera
 } from 'lucide-react-native';
 
 const getGroupIconComponent = (category: string | undefined | null) => {
@@ -57,7 +59,7 @@ const getGroupIconComponent = (category: string | undefined | null) => {
   }
 };
 import { useAuth } from '@/hooks/useAuth';
-import { apiRequest } from '@/lib/api';
+import { apiRequest, getAuthToken } from '@/lib/api';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography, Spacing } from '@/constants/theme';
 import { ThemedView } from '@/components/themed-view';
@@ -163,6 +165,7 @@ export default function GroupDetailsScreen() {
   const [customSplits, setCustomSplits] = useState<Record<string, string>>({}); // userId -> amount
   const [submittingExpense, setSubmittingExpense] = useState(false);
   const [monthFilter, setMonthFilter] = useState('All');
+  const [scanning, setScanning] = useState(false);
 
   // Add Member Modal States
   const [memberModalVisible, setMemberModalVisible] = useState(false);
@@ -335,6 +338,91 @@ export default function GroupDetailsScreen() {
       Alert.alert('Failed to Add Member', err.message || 'Check identifier');
     } finally {
       setSubmittingMember(false);
+    }
+  };
+  // Trigger Image Picker Options & OCR Scan
+  const handleScanReceipt = async () => {
+    Alert.alert(
+      'Scan Receipt',
+      'Choose source to scan your bill:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: () => performImageScan(true) },
+        { text: 'Choose from Gallery', onPress: () => performImageScan(false) },
+      ]
+    );
+  };
+
+  const performImageScan = async (useCamera: boolean) => {
+    try {
+      let result;
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Camera permissions are required to scan bills.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Gallery access is required to choose a bill image.');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+      }
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      setScanning(true);
+
+      const formData = new FormData();
+      const filename = asset.uri.split('/').pop() || 'receipt.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+      formData.append('image', {
+        uri: asset.uri,
+        name: filename,
+        type,
+      } as any);
+
+      const token = await getAuthToken();
+      const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+      const response = await fetch(`${baseUrl}/api/ocr`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const responseData = await response.json();
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to process receipt OCR');
+      }
+
+      if (responseData.success && responseData.data) {
+        const { merchant, amount, date, category } = responseData.data;
+        if (merchant) setDescription(merchant);
+        if (amount) setAmount(amount.toString());
+        if (date) setExpenseDate(date);
+        if (category) setExpenseCategory(category);
+        Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
+      }
+    } catch (err: any) {
+      console.error('OCR scan failed:', err);
+      Alert.alert('Scan Failed', err.message || 'Could not parse the receipt image.');
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -1126,16 +1214,29 @@ export default function GroupDetailsScreen() {
               <TouchableWithoutFeedback onPress={() => {}}>
                 <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
                   <View style={styles.modalHeader}>
-                <ThemedText type="subtitle" style={styles.modalTitle}>
-                  Add Expense Split
-                </ThemedText>
-                <TouchableOpacity
-                  style={styles.closeBtn}
-                  onPress={() => setExpenseModalVisible(false)}
-                >
-                  <X size={20} color={theme.text} />
-                </TouchableOpacity>
-              </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <ThemedText type="subtitle" style={styles.modalTitle}>
+                        Add Expense Split
+                      </ThemedText>
+                      <TouchableOpacity
+                        style={{ marginLeft: 12, padding: 6, borderRadius: 8, backgroundColor: theme.surface2 }}
+                        onPress={handleScanReceipt}
+                        disabled={scanning}
+                      >
+                        {scanning ? (
+                          <ActivityIndicator size="small" color={theme.primary} />
+                        ) : (
+                          <Camera size={16} color={theme.primary} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.closeBtn}
+                      onPress={() => setExpenseModalVisible(false)}
+                    >
+                      <X size={20} color={theme.text} />
+                    </TouchableOpacity>
+                  </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Horizontal Member list / Add Friends trigger */}
