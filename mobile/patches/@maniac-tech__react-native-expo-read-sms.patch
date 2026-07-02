@@ -1,0 +1,56 @@
+diff --git a/android/src/main/java/com/reactlibrary/RNExpoReadSmsModule.java b/android/src/main/java/com/reactlibrary/RNExpoReadSmsModule.java
+index 6df9e20198b45c5570bab9ea60e9da19af60b6c4..54070ff69235c212d0b74eb7d34e0a7b1d642f01 100644
+--- a/android/src/main/java/com/reactlibrary/RNExpoReadSmsModule.java
++++ b/android/src/main/java/com/reactlibrary/RNExpoReadSmsModule.java
+@@ -18,6 +18,11 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule;
+ import com.facebook.react.bridge.ReactMethod;
+ import com.facebook.react.bridge.Callback;
+ import com.facebook.react.modules.core.DeviceEventManagerModule;
++import android.database.Cursor;
++import android.net.Uri;
++import com.facebook.react.bridge.Arguments;
++import com.facebook.react.bridge.WritableArray;
++import com.facebook.react.bridge.WritableMap;
+ 
+ import java.util.Arrays;
+ 
+@@ -84,6 +89,39 @@ public class RNExpoReadSmsModule extends ReactContextBaseJavaModule {
+     }
+   }
+ 
++  @ReactMethod
++  public void readSMSInbox(int limit, final Callback success, final Callback error) {
++    try {
++      if (ContextCompat.checkSelfPermission(reactContext, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
++        Uri uri = Uri.parse("content://sms/inbox");
++        Cursor cursor = reactContext.getContentResolver().query(
++                uri,
++                new String[] { "address", "body", "date" },
++                null,
++                null,
++                "date DESC LIMIT " + limit
++        );
++        
++        WritableArray smsList = Arguments.createArray();
++        if (cursor != null && cursor.moveToFirst()) {
++          do {
++            WritableMap smsMap = Arguments.createMap();
++            smsMap.putString("sender", cursor.getString(0));
++            smsMap.putString("body", cursor.getString(1));
++            smsMap.putString("date", cursor.getString(2));
++            smsList.pushMap(smsMap);
++          } while (cursor.moveToNext());
++          cursor.close();
++        }
++        success.invoke(smsList);
++      } else {
++        error.invoke("Required READ_SMS permission");
++      }
++    } catch (Exception e) {
++      error.invoke(e.getMessage());
++    }
++  }
++
+   private String getMessageFromMessageIntent(Intent intent) {
+     final Bundle bundle = intent.getExtras();
+ 

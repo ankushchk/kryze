@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 20.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "pnpm": "11.8.0"
+    },
+    "preview": {
+      "distribution": "internal",
+      "pnpm": "11.8.0"
+    },
+    "production": {
+      "pnpm": "11.8.0"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

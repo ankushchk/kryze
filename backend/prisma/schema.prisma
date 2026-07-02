@@ -8,14 +8,34 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String?  @unique
-  phoneNumber  String?  @unique
+  id           String             @id @default(uuid()) @db.Uuid
+  email        String?            @unique
+  phoneNumber  String?            @unique
   name         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   passwordHash String?
-  googleId     String?  @unique
+  googleId     String?            @unique
+  upiId        String?
+  drafts       TransactionDraft[]
+  memberships  GroupMember[]
+  expenses     Expense[]
+  splits       ExpenseSplit[]
+}
+
+model TransactionDraft {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sender      String
+  messageBody String
+  merchant    String
+  amount      Float
+  date        DateTime
+  status      String   @default("PENDING") // PENDING, ADDED, IGNORED
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, sender, messageBody, date])
 }
 
 model PhoneVerification {
@@ -24,4 +44,55 @@ model PhoneVerification {
   code        String
   expiresAt   DateTime
   createdAt   DateTime @default(now())
+}
+
+model Group {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  icon        String        @default("friends")
+  members     GroupMember[]
+  expenses    Expense[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model GroupMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  groupId   String   @db.Uuid
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("MEMBER") // ADMIN, MEMBER
+  joinedAt  DateTime @default(now())
+
+  @@unique([groupId, userId])
+}
+
+model Expense {
+  id          String         @id @default(uuid()) @db.Uuid
+  groupId     String         @db.Uuid
+  group       Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  paidById    String         @db.Uuid
+  paidBy      User           @relation(fields: [paidById], references: [id], onDelete: Cascade)
+  description String
+  amount      Float
+  date        DateTime       @default(now())
+  category    String?
+  status      String         @default("APPROVED")
+  splits      ExpenseSplit[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model ExpenseSplit {
+  id        String   @id @default(uuid()) @db.Uuid
+  expenseId String   @db.Uuid
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float
+  createdAt DateTime @default(now())
+
+  @@unique([expenseId, userId])
 }
