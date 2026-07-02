@@ -11,8 +11,11 @@ import {
   Animated,
   Platform,
   KeyboardAvoidingView,
-  Alert
+  Alert,
+  TouchableWithoutFeedback,
+  Keyboard
 } from 'react-native';
+
 import {
   TrendingDown,
   RefreshCw,
@@ -433,12 +436,14 @@ export default function HomeScreen() {
         onRequestClose={() => setShowReviewModal(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-              <View style={styles.modalHeader}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                  <View style={styles.modalHeader}>
                 <ThemedText type="subtitle" style={styles.modalTitle}>
                   Review Transaction
                 </ThemedText>
@@ -542,10 +547,11 @@ export default function HomeScreen() {
                 </ScrollView>
               )}
             </ThemedView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
       {/* Profile Settings Modal */}
       <Modal
         visible={showProfileModal}
@@ -554,12 +560,14 @@ export default function HomeScreen() {
         onRequestClose={() => setShowProfileModal(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-              <View style={styles.modalHeader}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                  <View style={styles.modalHeader}>
                 <ThemedText type="subtitle" style={styles.modalTitle}>
                   Profile Settings
                 </ThemedText>
@@ -621,10 +629,11 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </ThemedView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
       {toastMessage && (
         <Animated.View
           style={[
