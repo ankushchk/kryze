@@ -15,7 +15,9 @@ import {
   Share,
   Linking,
   Animated,
-  RefreshControl
+  RefreshControl,
+  TouchableWithoutFeedback,
+  Keyboard
 } from 'react-native';
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -1116,12 +1118,14 @@ export default function GroupDetailsScreen() {
         onRequestClose={() => setExpenseModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-              <View style={styles.modalHeader}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                  <View style={styles.modalHeader}>
                 <ThemedText type="subtitle" style={styles.modalTitle}>
                   Add Expense Split
                 </ThemedText>
@@ -1327,10 +1331,11 @@ export default function GroupDetailsScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </ThemedView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
       {/* Add Member Modal */}
       <Modal
         visible={memberModalVisible}
@@ -1339,12 +1344,14 @@ export default function GroupDetailsScreen() {
         onRequestClose={() => setMemberModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={styles.modalOverlay}>
-            <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-              <View style={styles.modalHeader}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                  <View style={styles.modalHeader}>
                 <ThemedText type="subtitle" style={styles.modalTitle}>
                   Add Group Member
                 </ThemedText>
@@ -1473,10 +1480,11 @@ export default function GroupDetailsScreen() {
                 )}
               </ScrollView>
             </ThemedView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
       {/* Settle Up Debt Confirmation Modal */}
       <Modal
         visible={settleModalVisible}
@@ -1484,9 +1492,15 @@ export default function GroupDetailsScreen() {
         transparent={true}
         onRequestClose={() => setSettleModalVisible(false)}
       >
-        <View style={[styles.modalOverlay, { justifyContent: 'center', paddingHorizontal: 20 }]}>
-          <ThemedView style={[styles.settleModalBox, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.settleModalTitle, { color: theme.text }]}>Settle Up Debt</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={[styles.modalOverlay, { justifyContent: 'center', paddingHorizontal: 20 }]}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <ThemedView style={[styles.settleModalBox, { backgroundColor: theme.surface }]}>
+                  <Text style={[styles.settleModalTitle, { color: theme.text }]}>Settle Up Debt</Text>
             {(() => {
               if (!selectedDebt) return null;
               const payeeMember = members.find((m) => m.id === selectedDebt.to);
@@ -1594,10 +1608,12 @@ export default function GroupDetailsScreen() {
                 </>
               );
             })()}
-          </ThemedView>
+            </ThemedView>
+          </TouchableWithoutFeedback>
         </View>
-      </Modal>
-
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
       {/* Transaction Processing Overlay Modal */}
       <Modal
         visible={isProcessingPayment}
