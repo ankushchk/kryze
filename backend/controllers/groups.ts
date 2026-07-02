@@ -748,3 +748,47 @@ export const verifyExpense = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ error: error.message || "Failed to verify expense" });
   }
 };
+
+// PATCH /api/groups/:id/members/:memberId/upi
+export const updateMemberUpi = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const groupId = req.params.id as string;
+    const memberId = req.params.memberId as string;
+    const { upiId } = req.body;
+    const userId = req.userId!;
+
+    // 1. Verify requester is a member of the group
+    const isRequesterMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } }
+    });
+    if (!isRequesterMember) {
+      res.status(403).json({ error: "Access denied. You are not a member of this group." });
+      return;
+    }
+
+    // 2. Verify target member is in the group
+    const isTargetMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId: memberId } }
+    });
+    if (!isTargetMember) {
+      res.status(404).json({ error: "Member not found in this group" });
+      return;
+    }
+
+    if (!upiId || !upiId.trim()) {
+      res.status(400).json({ error: "Valid UPI ID is required" });
+      return;
+    }
+
+    // 3. Update the target user's upiId
+    await prisma.user.update({
+      where: { id: memberId },
+      data: { upiId: upiId.trim() }
+    });
+
+    res.json({ message: "UPI ID updated successfully" });
+  } catch (error: any) {
+    console.error("Update member UPI error:", error);
+    res.status(500).json({ error: error.message || "Failed to update UPI ID" });
+  }
+};

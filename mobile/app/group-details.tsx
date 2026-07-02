@@ -169,14 +169,16 @@ export default function GroupDetailsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
 
-  // Phone contacts states
-  const [localContacts, setLocalContacts] = useState<any[]>([]);
-  const [filteredLocalContacts, setFilteredLocalContacts] = useState<any[]>([]);
-
   // Settle Modal States
   const [settleModalVisible, setSettleModalVisible] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<SimplifiedDebt | null>(null);
   const [submittingSettle, setSubmittingSettle] = useState(false);
+  const [inputUpi, setInputUpi] = useState('');
+  const [submittingUpi, setSubmittingUpi] = useState(false);
+  const [localContacts, setLocalContacts] = useState<any[]>([]);
+  const [filteredLocalContacts, setFilteredLocalContacts] = useState<any[]>([]);
+
+
 
   const fetchGroupDetails = async (showIndicator = true) => {
     if (!session || !groupId) return;
@@ -390,15 +392,14 @@ export default function GroupDetailsScreen() {
   };
 
   // Handle UPI Deep Linking
-  const handleUPIPayment = async () => {
+  const handleUPIPayment = async (overrideUpi?: string) => {
     if (!selectedDebt) return;
     const payeeMember = members.find((m) => m.id === selectedDebt.to);
-    const payeeUpi = payeeMember?.upiId;
+    const payeeUpi = overrideUpi || payeeMember?.upiId;
     if (!payeeUpi) {
       Alert.alert('UPI ID Missing', `Ask ${selectedDebt.toName} to enter their UPI ID in settings to pay instantly.`);
       return;
     }
-
     const upiUrl = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(selectedDebt.toName)}&am=${selectedDebt.amount}&cu=INR&tn=${encodeURIComponent(`Settlement in ${group?.name || 'Group'}`)}`;
     
     try {
@@ -438,7 +439,31 @@ export default function GroupDetailsScreen() {
     }
   };
 
-  // Handle Settle up
+  const handleSaveUpiAndPay = async () => {
+    if (!selectedDebt || !inputUpi.trim()) {
+      Alert.alert('Error', 'Please enter a valid UPI ID');
+      return;
+    }
+
+    setSubmittingUpi(true);
+    try {
+      const response = await apiRequest(`/api/groups/${groupId}/members/${selectedDebt.to}/upi`, {
+        method: 'PATCH',
+        body: { upiId: inputUpi.trim() }
+      });
+      
+      if (response) {
+        setInputUpi('');
+        fetchGroupDetails(false);
+        handleUPIPayment(inputUpi.trim());
+      }
+    } catch (err: any) {
+      Alert.alert('Failed to Save UPI ID', err.message || 'Could not update database record');
+    } finally {
+      setSubmittingUpi(false);
+    }
+  };
+
   const handleSettleUp = async (status = 'APPROVED') => {
     if (!selectedDebt) return;
 
@@ -1412,8 +1437,7 @@ export default function GroupDetailsScreen() {
                       {selectedDebt.toName}
                     </Text>
                     ?
-                  </Text>
-                  
+                  </Text>                  
                   {payeeUpi ? (
                     <View style={{ marginBottom: 16, alignItems: 'center' }}>
                       <Text style={{ fontSize: 11, color: theme.lent, fontWeight: '600' }}>
@@ -1422,16 +1446,38 @@ export default function GroupDetailsScreen() {
                     </View>
                   ) : (
                     <View style={{ marginBottom: 16 }}>
-                      <Text style={{ fontSize: 11, color: theme.text3, fontStyle: 'italic', textAlign: 'center' }}>
-                        Ask {selectedDebt.toName} to add their UPI ID in settings to pay them instantly.
+                      <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 8, textAlign: 'center' }}>
+                        No UPI ID registered. Enter {selectedDebt.toName}'s UPI ID to pay instantly:
                       </Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          borderRadius: 8,
+                          padding: 10,
+                          color: theme.text,
+                          fontSize: 14,
+                          backgroundColor: theme.surface2,
+                          textAlign: 'center',
+                          fontFamily: Typography.ui
+                        }}
+                        placeholder="e.g. name@upi"
+                        placeholderTextColor={theme.text3}
+                        value={inputUpi}
+                        onChangeText={setInputUpi}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
                     </View>
                   )}
 
                   <View style={styles.settleModalActions}>
                     <TouchableOpacity
                       style={[styles.settleCancelBtn, { borderColor: theme.border }]}
-                      onPress={() => setSettleModalVisible(false)}
+                      onPress={() => {
+                        setInputUpi('');
+                        setSettleModalVisible(false);
+                      }}
                     >
                       <Text style={[styles.settleCancelBtnText, { color: theme.textSecondary }]}>Cancel</Text>
                     </TouchableOpacity>
@@ -1439,37 +1485,46 @@ export default function GroupDetailsScreen() {
                     {payeeUpi ? (
                       <TouchableOpacity
                         style={[styles.settleConfirmBtn, { backgroundColor: theme.primary, flex: 0.6 }]}
-                        onPress={handleUPIPayment}
+                        onPress={() => handleUPIPayment()}
                         disabled={submittingSettle}
                       >
                         <Text style={styles.settleConfirmBtnText}>Pay via UPI App</Text>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        style={[styles.settleConfirmBtn, { backgroundColor: theme.primary }]}
-                        onPress={() => handleSettleUp('APPROVED')}
-                        disabled={submittingSettle}
+                        style={[
+                          styles.settleConfirmBtn, 
+                          { 
+                            backgroundColor: inputUpi.trim() ? theme.primary : theme.surface2, 
+                            flex: 0.6 
+                          }
+                        ]}
+                        onPress={handleSaveUpiAndPay}
+                        disabled={submittingUpi || !inputUpi.trim()}
                       >
-                        {submittingSettle ? (
+                        {submittingUpi ? (
                           <ActivityIndicator size="small" color="#FFF" />
                         ) : (
-                          <Text style={styles.settleConfirmBtnText}>Record Payment</Text>
+                          <Text style={[
+                            styles.settleConfirmBtnText, 
+                            { color: inputUpi.trim() ? '#FFF' : theme.text3 }
+                          ]}>
+                            Save & Pay via UPI
+                          </Text>
                         )}
                       </TouchableOpacity>
                     )}
                   </View>
 
-                  {payeeUpi && (
-                    <TouchableOpacity
-                      style={{ marginTop: 14, alignSelf: 'center', padding: 4 }}
-                      onPress={() => handleSettleUp('APPROVED')}
-                      disabled={submittingSettle}
-                    >
-                      <Text style={{ fontSize: 12, color: theme.textSecondary, textDecorationLine: 'underline' }}>
-                        or log manual cash payment
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity
+                    style={{ marginTop: 14, alignSelf: 'center', padding: 4 }}
+                    onPress={() => handleSettleUp('APPROVED')}
+                    disabled={submittingSettle}
+                  >
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, textDecorationLine: 'underline' }}>
+                      or log manual cash payment
+                    </Text>
+                  </TouchableOpacity>
                 </>
               );
             })()}

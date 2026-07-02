@@ -9,7 +9,8 @@ import {
   updateGroup,
   deleteGroup,
   removeGroupMember,
-  verifyExpense
+  verifyExpense,
+  updateMemberUpi
 } from "../controllers/groups.js";
 
 const router = Router();
@@ -40,5 +41,8 @@ router.post("/:id/expenses", authenticateToken, createExpense);
 
 // PATCH /api/groups/:id/expenses/:expenseId/verify
 router.patch("/:id/expenses/:expenseId/verify", authenticateToken, verifyExpense);
+
+// PATCH /api/groups/:id/members/:memberId/upi
+router.patch("/:id/members/:memberId/upi", authenticateToken, updateMemberUpi);
 
 export default router;
