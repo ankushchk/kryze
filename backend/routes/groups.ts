@@ -6,6 +6,8 @@ import {
   addGroupMember,
   getGroupDetails,
   createExpense,
+  updateExpense,
+  deleteExpense,
   updateGroup,
   deleteGroup,
   removeGroupMember,
@@ -38,6 +40,12 @@ router.delete("/:id/members/:memberId", authenticateToken, removeGroupMember);
 
 // POST /api/groups/:id/expenses
 router.post("/:id/expenses", authenticateToken, createExpense);
+
+// PATCH /api/groups/:id/expenses/:expenseId
+router.patch("/:id/expenses/:expenseId", authenticateToken, updateExpense);
+
+// DELETE /api/groups/:id/expenses/:expenseId
+router.delete("/:id/expenses/:expenseId", authenticateToken, deleteExpense);
 
 // PATCH /api/groups/:id/expenses/:expenseId/verify
 router.patch("/:id/expenses/:expenseId/verify", authenticateToken, verifyExpense);

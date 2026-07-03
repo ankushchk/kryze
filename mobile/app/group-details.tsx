@@ -78,6 +78,7 @@ type Member = {
 
 type ExpenseSplit = {
   id: string;
+  expenseId: string;
   amount: number;
   userId: string;
   user: {
@@ -170,6 +171,7 @@ export default function GroupDetailsScreen() {
   const [scanning, setScanning] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [selectedReceiptImage, setSelectedReceiptImage] = useState<string | null>(null);
+  const [editingExpense, setEditingExpense] = useState<GroupExpense | null>(null);
 
   // Add Member Modal States
   const [memberModalVisible, setMemberModalVisible] = useState(false);
@@ -432,6 +434,19 @@ export default function GroupDetailsScreen() {
   };
 
   // Handle Add Expense
+  const resetExpenseModal = () => {
+    setDescription('');
+    setAmount('');
+    setPaidById(currentUser?.id || '');
+    setReceiptUrl(null);
+    setCustomSplits({});
+    setExpenseCategory('Food');
+    setExpenseDate(new Date().toISOString().split('T')[0]);
+    setSplitEqually(true);
+    setEditingExpense(null);
+    setExpenseModalVisible(false);
+  };
+
   const handleAddExpense = async () => {
     if (!description.trim()) {
       Alert.alert('Required', 'Please enter a description');
@@ -449,11 +464,8 @@ export default function GroupDetailsScreen() {
       let splits: Array<{ userId: string; amount: number }> = [];
 
       if (splitEqually) {
-        // Equal split math
         const count = members.length;
         const equalShare = Math.round((parsedAmount / count) * 100) / 100;
-        
-        // To handle floating point remainders, make the last person pay the difference
         let sum = 0;
         members.forEach((m, idx) => {
           const share = idx === count - 1 ? parsedAmount - sum : equalShare;
@@ -461,7 +473,6 @@ export default function GroupDetailsScreen() {
           splits.push({ userId: m.id, amount: Math.round(share * 100) / 100 });
         });
       } else {
-        // Custom split mapping
         let sum = 0;
         members.forEach((m) => {
           const shareStr = customSplits[m.id] || '0';
@@ -469,20 +480,42 @@ export default function GroupDetailsScreen() {
           sum += share;
           splits.push({ userId: m.id, amount: share });
         });
-
         const diff = Math.abs(sum - parsedAmount);
         if (diff > 0.05) {
-          Alert.alert(
-            'Sum Mismatch',
-            `The sum of custom splits (₹${sum}) must equal the total amount (₹${parsedAmount})`
-          );
+          Alert.alert('Sum Mismatch', `The sum of custom splits (₹${sum}) must equal the total amount (₹${parsedAmount})`);
           setSubmittingExpense(false);
           return;
         }
       }
 
-      const response = await apiRequest(`/api/groups/${groupId}/expenses`, {
-        method: 'POST',
+      const isEditing = editingExpense !== null;
+      const url = isEditing
+        ? `/api/groups/${groupId}/expenses/${editingExpense!.id}`
+        : `/api/groups/${groupId}/expenses`;
+
+      // Optimistic UI: prepend/update immediately
+      const tempId = `temp_${Date.now()}`;
+      const optimisticExpense: GroupExpense = {
+        id: isEditing ? editingExpense!.id : tempId,
+        description: description.trim(),
+        amount: parsedAmount,
+        date: expenseDate,
+        category: expenseCategory,
+        status: 'OPTIMISTIC',
+        receiptUrl: receiptUrl ?? null,
+        paidById: paidById,
+        paidBy: { id: paidById, name: members.find(m => m.id === paidById)?.name || 'You' },
+        splits: splits.map(s => ({ id: '', expenseId: isEditing ? editingExpense!.id : tempId, userId: s.userId, amount: s.amount, user: { id: s.userId, name: members.find(m => m.id === s.userId)?.name || '' } })),
+      };
+
+      if (isEditing) {
+        setExpenses(prev => prev.map(e => e.id === editingExpense!.id ? optimisticExpense : e));
+      } else {
+        setExpenses(prev => [optimisticExpense, ...prev]);
+      }
+
+      const response = await apiRequest(url, {
+        method: isEditing ? 'PATCH' : 'POST',
         body: {
           description: description.trim(),
           amount: parsedAmount,
@@ -494,22 +527,60 @@ export default function GroupDetailsScreen() {
         },
       });
 
-      if (response && response.expense) {
-        setExpenseModalVisible(false);
-        setDescription('');
-        setAmount('');
-        setReceiptUrl(null);
-        setCustomSplits({});
-        setExpenseCategory('Food');
-        setExpenseDate(new Date().toISOString().split('T')[0]);
+      if (response && (response.expense || isEditing)) {
+        resetExpenseModal();
         fetchGroupDetails(false);
-        Alert.alert('Logged', 'Expense logged successfully!');
+        Alert.alert(isEditing ? 'Updated' : 'Logged', isEditing ? 'Expense updated!' : 'Expense logged successfully!');
       }
     } catch (err: any) {
-      Alert.alert('Error Logging Expense', err.message || 'Verification failure');
+      // Roll back optimistic update
+      fetchGroupDetails(false);
+      Alert.alert(editingExpense ? 'Error Updating Expense' : 'Error Logging Expense', err.message || 'Something went wrong');
     } finally {
       setSubmittingExpense(false);
     }
+  };
+
+  const handleEditExpense = (exp: GroupExpense) => {
+    setEditingExpense(exp);
+    setDescription(exp.description);
+    setAmount(exp.amount.toString());
+    setPaidById(exp.paidById);
+    setExpenseCategory(exp.category || 'Food');
+    setExpenseDate(new Date(exp.date).toISOString().split('T')[0]);
+    setReceiptUrl(exp.receiptUrl ?? null);
+    // Pre-fill custom splits
+    const splitMap: Record<string, string> = {};
+    exp.splits.forEach((s: any) => { splitMap[s.userId] = s.amount.toString(); });
+    setCustomSplits(splitMap);
+    setSplitEqually(false);
+    setExpenseModalVisible(true);
+  };
+
+  const handleDeleteExpense = (exp: GroupExpense) => {
+    Alert.alert(
+      'Delete Expense',
+      `Are you sure you want to delete "${exp.description}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            // Optimistic: remove from list immediately
+            setExpenses(prev => prev.filter(e => e.id !== exp.id));
+            try {
+              await apiRequest(`/api/groups/${groupId}/expenses/${exp.id}`, { method: 'DELETE' });
+              fetchGroupDetails(false);
+            } catch (err: any) {
+              // Roll back on failure
+              fetchGroupDetails(false);
+              Alert.alert('Error', err.message || 'Failed to delete expense');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleSendReminder = async (debt: SimplifiedDebt) => {
@@ -863,8 +934,26 @@ export default function GroupDetailsScreen() {
               }
             };
 
+            const canModify = exp.paidById === currentUser?.id || 
+              members.find(m => m.id === currentUser?.id)?.role === 'ADMIN';
+
             return (
-              <View style={[styles.expenseCard, { backgroundColor: theme.surface }]}>
+              <TouchableOpacity
+                activeOpacity={0.95}
+                onLongPress={() => {
+                  if (!canModify || isSettlement) return;
+                  Alert.alert(
+                    exp.description,
+                    'What would you like to do?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: '✏️  Edit', onPress: () => handleEditExpense(exp) },
+                      { text: '🗑  Delete', style: 'destructive', onPress: () => handleDeleteExpense(exp) },
+                    ]
+                  );
+                }}
+              >
+              <View style={[styles.expenseCard, { backgroundColor: theme.surface, opacity: exp.status === 'OPTIMISTIC' ? 0.6 : 1 }]}>
                 <View style={styles.expHeader}>
                   <View style={[styles.expAvatar, { backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }]}>
                     {isSettlement ? (
@@ -1042,6 +1131,7 @@ export default function GroupDetailsScreen() {
                   </View>
                 )}
               </View>
+              </TouchableOpacity>
             );
           }}
           ListEmptyComponent={
@@ -1254,7 +1344,7 @@ export default function GroupDetailsScreen() {
                   <View style={styles.modalHeader}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                       <ThemedText type="subtitle" style={styles.modalTitle}>
-                        Add Expense Split
+                        {editingExpense ? "Edit Expense" : "Add Expense Split"}
                       </ThemedText>
                       <TouchableOpacity
                         style={{ marginLeft: 12, padding: 6, borderRadius: 8, backgroundColor: theme.surface2 }}
@@ -1270,7 +1360,7 @@ export default function GroupDetailsScreen() {
                     </View>
                     <TouchableOpacity
                       style={styles.closeBtn}
-                      onPress={() => setExpenseModalVisible(false)}
+                      onPress={resetExpenseModal}
                     >
                       <X size={20} color={theme.text} />
                     </TouchableOpacity>
@@ -1503,7 +1593,7 @@ export default function GroupDetailsScreen() {
                   {submittingExpense ? (
                     <ActivityIndicator size="small" color="#FFF" />
                   ) : (
-                    <Text style={styles.submitButtonText}>Log Split Expense</Text>
+                    <Text style={styles.submitButtonText}>{editingExpense ? "Save Changes" : "Log Split Expense"}</Text>
                   )}
                 </TouchableOpacity>
               </ScrollView>

@@ -793,3 +793,131 @@ export const updateMemberUpi = async (req: AuthRequest, res: Response): Promise<
     res.status(500).json({ error: error.message || "Failed to update UPI ID" });
   }
 };
+
+// PATCH /api/groups/:id/expenses/:expenseId
+export const updateExpense = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const groupId = req.params.id as string;
+    const expenseId = req.params.expenseId as string;
+    const userId = req.userId!;
+    const { description, amount, date, category, splits, receiptUrl } = req.body;
+
+    // 1. Load the expense and verify it belongs to this group
+    const expense = await prisma.expense.findFirst({
+      where: { id: expenseId, groupId },
+      include: { splits: true },
+    });
+
+    if (!expense) {
+      res.status(404).json({ error: "Expense not found in this group" });
+      return;
+    }
+
+    // 2. Only the original payer or a group ADMIN can edit
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+
+    const isCreator = expense.paidById === userId;
+    const isAdmin = membership?.role === "ADMIN";
+
+    if (!isCreator && !isAdmin) {
+      res.status(403).json({ error: "Only the expense creator or group admin can edit this expense" });
+      return;
+    }
+
+    // 3. Validate inputs
+    const parsedAmount = amount !== undefined ? parseFloat(amount) : expense.amount;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      res.status(400).json({ error: "Valid expense amount is required" });
+      return;
+    }
+
+    // 4. If new splits are provided, validate they sum correctly
+    if (Array.isArray(splits) && splits.length > 0) {
+      const splitsTotal = splits.reduce((sum: number, s: any) => sum + parseFloat(s.amount || 0), 0);
+      const diff = Math.abs(splitsTotal - parsedAmount);
+      if (diff > 0.05) {
+        res.status(400).json({
+          error: `Sum of split shares (₹${splitsTotal}) does not match total amount (₹${parsedAmount})`,
+        });
+        return;
+      }
+    }
+
+    // 5. Update expense and recreate splits atomically
+    const updated = await prisma.$transaction(async (tx) => {
+      const e = await tx.expense.update({
+        where: { id: expenseId },
+        data: {
+          description: description ? description.trim() : expense.description,
+          amount: parsedAmount,
+          date: date ? new Date(date) : expense.date,
+          category: category !== undefined ? (category ? category.trim() : null) : expense.category,
+          receiptUrl: receiptUrl !== undefined ? (receiptUrl ? receiptUrl.trim() : null) : expense.receiptUrl,
+        },
+      });
+
+      // Recreate splits only if a new splits array is provided
+      if (Array.isArray(splits) && splits.length > 0) {
+        await tx.expenseSplit.deleteMany({ where: { expenseId } });
+        for (const split of splits) {
+          await tx.expenseSplit.create({
+            data: {
+              expenseId,
+              userId: split.userId,
+              amount: parseFloat(split.amount),
+            },
+          });
+        }
+      }
+
+      return e;
+    });
+
+    res.json({ message: "Expense updated successfully", expense: updated });
+  } catch (error: any) {
+    console.error("Update expense error:", error);
+    res.status(500).json({ error: error.message || "Failed to update expense" });
+  }
+};
+
+// DELETE /api/groups/:id/expenses/:expenseId
+export const deleteExpense = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const groupId = req.params.id as string;
+    const expenseId = req.params.expenseId as string;
+    const userId = req.userId!;
+
+    // 1. Load the expense and verify it belongs to this group
+    const expense = await prisma.expense.findFirst({
+      where: { id: expenseId, groupId },
+    });
+
+    if (!expense) {
+      res.status(404).json({ error: "Expense not found in this group" });
+      return;
+    }
+
+    // 2. Only the original payer or a group ADMIN can delete
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+
+    const isCreator = expense.paidById === userId;
+    const isAdmin = membership?.role === "ADMIN";
+
+    if (!isCreator && !isAdmin) {
+      res.status(403).json({ error: "Only the expense creator or group admin can delete this expense" });
+      return;
+    }
+
+    // 3. Delete (splits cascade automatically via Prisma schema)
+    await prisma.expense.delete({ where: { id: expenseId } });
+
+    res.json({ message: "Expense deleted successfully" });
+  } catch (error: any) {
+    console.error("Delete expense error:", error);
+    res.status(500).json({ error: error.message || "Failed to delete expense" });
+  }
+};
