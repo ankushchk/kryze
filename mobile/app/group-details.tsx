@@ -383,50 +383,71 @@ export default function GroupDetailsScreen() {
           quality: 0.8,
         });
       }
-
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
       }
 
       const asset = result.assets[0];
       setScanning(true);
+
       const filename = asset.uri.split('/').pop() || 'receipt.jpg';
-      const localFileResponse = await fetch(asset.uri);
-      const blob = await localFileResponse.blob();
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
 
       const formData = new FormData();
-      formData.append('image', blob, filename);
+      formData.append('image', {
+        uri: asset.uri,
+        name: filename,
+        type,
+      } as any);
+
       const token = await getAuthToken();
       const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-      const response = await fetch(`${baseUrl}/api/ocr`, {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: formData,
-      });
-
-      const responseData = await response.json();
-      if (!response.ok) {
-        throw new Error(responseData.error || 'Failed to process receipt OCR');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${baseUrl}/api/ocr`);
+      
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       }
 
-      if (responseData.success && responseData.data) {
-        const { merchant, amount, date, category, receiptUrl: parsedUrl } = responseData.data;
-        if (merchant) setDescription(merchant);
-        if (amount) setAmount(amount.toString());
-        if (date) setExpenseDate(date);
-        if (category) setExpenseCategory(category);
-        if (parsedUrl) setReceiptUrl(parsedUrl);
-        Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
-      }
+      xhr.onload = () => {
+        try {
+          const responseData = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            if (responseData.success && responseData.data) {
+              const { merchant, amount, date, category, receiptUrl: parsedUrl } = responseData.data;
+              if (merchant) setDescription(merchant);
+              if (amount) setAmount(amount.toString());
+              if (date) setExpenseDate(date);
+              if (category) setExpenseCategory(category);
+              if (parsedUrl) setReceiptUrl(parsedUrl);
+              Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
+            } else {
+              Alert.alert('Scan Failed', 'Failed to parse receipt details.');
+            }
+          } else {
+            Alert.alert('Scan Failed', responseData.error || 'Failed to process receipt OCR');
+          }
+        } catch (parseErr) {
+          Alert.alert('Scan Failed', 'Invalid server response format.');
+        }
+        setScanning(false);
+      };
+
+      xhr.onerror = (e) => {
+        console.error('XHR OCR scan failed:', e);
+        Alert.alert('Scan Failed', 'Could not connect to OCR server.');
+        setScanning(false);
+      };
+
+      xhr.send(formData);
     } catch (err: any) {
       console.error('OCR scan failed:', err);
       Alert.alert('Scan Failed', err.message || 'Could not parse the receipt image.');
-    } finally {
       setScanning(false);
     }
   };
-
   // Handle Add Expense
   const resetExpenseModal = () => {
     setDescription('');
