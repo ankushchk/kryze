@@ -19,7 +19,8 @@ import {
   Animated,
   RefreshControl,
   TouchableWithoutFeedback,
-  Keyboard
+  Keyboard,
+  useWindowDimensions
 } from 'react-native';
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -144,6 +145,7 @@ const getCategoryIconAndColor = (description: string) => {
 export default function GroupDetailsScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { id: groupId } = useLocalSearchParams() as { id: string };
   const { user: currentUser, session } = useAuth();
 
@@ -953,22 +955,22 @@ export default function GroupDetailsScreen() {
               members.find(m => m.id === currentUser?.id)?.role === 'ADMIN';
 
             return (
-              <TouchableOpacity
-                activeOpacity={0.95}
-                onLongPress={() => {
-                  if (!canModify || isSettlement) return;
-                  Alert.alert(
-                    exp.description,
-                    'What would you like to do?',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: '✏️  Edit', onPress: () => handleEditExpense(exp) },
-                      { text: '🗑  Delete', style: 'destructive', onPress: () => handleDeleteExpense(exp) },
-                    ]
-                  );
-                }}
-              >
               <View style={[styles.expenseCard, { backgroundColor: theme.surface, opacity: exp.status === 'OPTIMISTIC' ? 0.6 : 1 }]}>
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  onLongPress={() => {
+                    if (!canModify || isSettlement) return;
+                    Alert.alert(
+                      exp.description,
+                      'What would you like to do?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: '✏️  Edit', onPress: () => handleEditExpense(exp) },
+                        { text: '🗑  Delete', style: 'destructive', onPress: () => handleDeleteExpense(exp) },
+                      ]
+                    );
+                  }}
+                >
                 <View style={styles.expHeader}>
                   <View style={[styles.expAvatar, { backgroundColor: theme.surface2, justifyContent: 'center', alignItems: 'center' }]}>
                     {isSettlement ? (
@@ -1115,6 +1117,8 @@ export default function GroupDetailsScreen() {
                   </View>
                 )}
 
+                </TouchableOpacity>
+
                 {/* Receipt Attachment Row */}
                 {exp.receiptUrl && (
                   <View style={{
@@ -1146,7 +1150,6 @@ export default function GroupDetailsScreen() {
                   </View>
                 )}
               </View>
-              </TouchableOpacity>
             );
           }}
           ListEmptyComponent={
@@ -1349,7 +1352,7 @@ export default function GroupDetailsScreen() {
         onRequestClose={() => setExpenseModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -1361,17 +1364,6 @@ export default function GroupDetailsScreen() {
                       <ThemedText type="subtitle" style={styles.modalTitle}>
                         {editingExpense ? "Edit Expense" : "Add Expense Split"}
                       </ThemedText>
-                      <TouchableOpacity
-                        style={{ marginLeft: 12, padding: 6, borderRadius: 8, backgroundColor: theme.surface2 }}
-                        onPress={handleScanReceipt}
-                        disabled={scanning}
-                      >
-                        {scanning ? (
-                          <ActivityIndicator size="small" color={theme.primary} />
-                        ) : (
-                          <Camera size={16} color={theme.primary} />
-                        )}
-                      </TouchableOpacity>
                     </View>
                     <TouchableOpacity
                       style={styles.closeBtn}
@@ -1382,6 +1374,52 @@ export default function GroupDetailsScreen() {
                   </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Large Premium Scan Receipt Card */}
+                {!editingExpense && (
+                  <TouchableOpacity
+                    onPress={handleScanReceipt}
+                    disabled={scanning}
+                    style={{
+                      backgroundColor: theme.primaryDim,
+                      borderColor: theme.primary + '30',
+                      borderWidth: 1,
+                      borderRadius: 14,
+                      padding: 16,
+                      marginHorizontal: 16,
+                      marginTop: 10,
+                      marginBottom: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      shadowColor: theme.primary,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 8,
+                      elevation: 2,
+                    }}
+                  >
+                    <View style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: theme.primary + '18',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: 14
+                    }}>
+                      <Camera size={22} color={theme.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontFamily: Typography.uiBold, color: theme.primary }}>
+                        Scan Bill Receipt
+                      </Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 3 }}>
+                        Autofill description, amount, date & splits instantly
+                      </Text>
+                    </View>
+                    <ArrowRight size={16} color={theme.primary} style={{ marginLeft: 8 }} />
+                  </TouchableOpacity>
+                )}
+
                 {/* Horizontal Member list / Add Friends trigger */}
                 <View style={styles.addFriendsHeaderRow}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.addFriendsScroll}>
@@ -1626,7 +1664,7 @@ export default function GroupDetailsScreen() {
         onRequestClose={() => setMemberModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -1775,7 +1813,7 @@ export default function GroupDetailsScreen() {
         onRequestClose={() => setSettleModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -2016,6 +2054,53 @@ export default function GroupDetailsScreen() {
         </View>
       </Modal>
 
+      {/* OCR Scanning Overlay Modal */}
+      <Modal
+        visible={scanning}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <View style={{
+            width: 280,
+            backgroundColor: theme.surface,
+            borderRadius: 24,
+            padding: 30,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            elevation: 5
+          }}>
+            <View style={{ width: 120, height: 120, justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <ActivityIndicator size="large" color={theme.primary} />
+            </View>
+            <Text style={{
+              fontSize: 16,
+              fontFamily: Typography.uiBold,
+              color: theme.text,
+              textAlign: 'center',
+              marginBottom: 8
+            }}>
+              Receipt Parsing
+            </Text>
+            <Text style={{
+              fontSize: 12,
+              fontFamily: Typography.ui,
+              color: theme.textSecondary,
+              textAlign: 'center'
+            }}>
+              Extracting items, merchant and totals from bill
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       {/* Fullscreen Receipt Viewer Modal */}
       <Modal
         visible={!!selectedReceiptImage}
@@ -2058,7 +2143,11 @@ export default function GroupDetailsScreen() {
           {selectedReceiptImage && (
             <Image
               source={{ uri: selectedReceiptImage }}
-              style={{ width: '92%', height: '72%', borderRadius: 16 }}
+              style={{
+                width: windowWidth * 0.9,
+                height: windowHeight * 0.7,
+                borderRadius: 16,
+              }}
               resizeMode="contain"
             />
           )}
