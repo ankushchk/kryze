@@ -27,7 +27,8 @@ import {
   Layers,
   ArrowRight,
   History,
-  User
+  User,
+  Users
 } from 'lucide-react-native';
 import { useHomeScreen, TransactionDraft } from '@/hooks/useHomeScreen';
 import { useTheme } from '@/hooks/use-theme';
@@ -436,7 +437,7 @@ export default function HomeScreen() {
         onRequestClose={() => setShowReviewModal(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -478,9 +479,12 @@ export default function HomeScreen() {
                         ]}
                         onPress={() => setSelectedGroupId('personal')}
                       >
-                        <Text style={[styles.groupChipText, { color: selectedGroupId === 'personal' ? theme.primary : theme.text }]}>
-                          👤 Personal
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <User size={13} color={selectedGroupId === 'personal' ? theme.primary : theme.textSecondary} style={{ marginRight: 6 }} />
+                          <Text style={[styles.groupChipText, { color: selectedGroupId === 'personal' ? theme.primary : theme.text }]}>
+                            Personal
+                          </Text>
+                        </View>
                       </TouchableOpacity>
 
                       {groups.map((g) => (
@@ -493,9 +497,12 @@ export default function HomeScreen() {
                           ]}
                           onPress={() => setSelectedGroupId(g.id)}
                         >
-                          <Text style={[styles.groupChipText, { color: selectedGroupId === g.id ? theme.primary : theme.text }]}>
-                            👥 {g.name}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Users size={13} color={selectedGroupId === g.id ? theme.primary : theme.textSecondary} style={{ marginRight: 6 }} />
+                            <Text style={[styles.groupChipText, { color: selectedGroupId === g.id ? theme.primary : theme.text }]}>
+                              {g.name}
+                            </Text>
+                          </View>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
@@ -560,7 +567,7 @@ export default function HomeScreen() {
         onRequestClose={() => setShowProfileModal(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
