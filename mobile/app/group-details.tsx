@@ -390,18 +390,12 @@ export default function GroupDetailsScreen() {
 
       const asset = result.assets[0];
       setScanning(true);
+      const filename = asset.uri.split('/').pop() || 'receipt.jpg';
+      const localFileResponse = await fetch(asset.uri);
+      const blob = await localFileResponse.blob();
 
       const formData = new FormData();
-      const filename = asset.uri.split('/').pop() || 'receipt.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
-
-      formData.append('image', {
-        uri: asset.uri,
-        name: filename,
-        type,
-      } as any);
-
+      formData.append('image', blob, filename);
       const token = await getAuthToken();
       const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
