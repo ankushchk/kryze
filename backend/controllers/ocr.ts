@@ -26,9 +26,8 @@ export const processReceiptOCR = async (req: Request, res: Response): Promise<vo
 
     const prompt = `Analyze this receipt image. Extract the merchant name, total amount, transaction date, and categorization.
 Return a structured JSON object. Ensure amount is a number and date is formatted as YYYY-MM-DD.`;
-
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           inlineData: {

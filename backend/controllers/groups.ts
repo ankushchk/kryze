@@ -493,6 +493,8 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
         amount: e.amount,
         date: e.date,
         category: e.category,
+        status: e.status,
+        receiptUrl: e.receiptUrl,
         paidById: e.paidById,
         paidBy: e.paidBy,
         splits: e.splits.map((s: any) => ({
