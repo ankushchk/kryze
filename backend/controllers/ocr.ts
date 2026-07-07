@@ -24,8 +24,9 @@ export const processReceiptOCR = async (req: Request, res: Response): Promise<vo
     // Convert file buffer to base64 inline data format
     const base64Data = file.buffer.toString('base64');
 
-    const prompt = `Analyze this receipt image. Extract the merchant name, total amount, transaction date, and categorization.
-Return a structured JSON object. Ensure amount is a number and date is formatted as YYYY-MM-DD.`;
+    const prompt = `Analyze this receipt image. Extract the merchant name, total amount, transaction date, categorization, and the individual line items.
+For each line item, extract the name/description, quantity (default to 1 if not specified), and the total price for that line item (i.e. unit price multiplied by quantity).
+Return a structured JSON object. Ensure total amount and item prices are numbers, and date is formatted as YYYY-MM-DD.`;
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
@@ -49,8 +50,20 @@ Return a structured JSON object. Ensure amount is a number and date is formatted
               type: 'STRING', 
               enum: ['Food', 'Stay', 'Travel', 'Shopping', 'Other'] 
             },
+            items: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  name: { type: 'STRING' },
+                  quantity: { type: 'NUMBER' },
+                  price: { type: 'NUMBER' }
+                },
+                required: ['name', 'quantity', 'price']
+              }
+            }
           },
-          required: ['merchant', 'amount', 'date', 'category'],
+          required: ['merchant', 'amount', 'date', 'category', 'items'],
         },
       },
     });

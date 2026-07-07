@@ -27,7 +27,7 @@ app.get("/health", (_req, res) => {
 async function startServer() {
   await connectDatabase();
 
-  app.listen(port, () => {
+  app.listen(port, "0.0.0.0", () => {
     console.log(`Server is running on port ${port}`);
   });
 }
