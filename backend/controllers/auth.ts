@@ -6,7 +6,7 @@ import twilio from "twilio";
 import { prisma } from "../config/dbConnect.js";
 import { AuthRequest } from "../middleware/auth.js";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "secret-kryze-token-key-change-this-in-production";
+const JWT_SECRET = process.env.JWT_SECRET ?? "secret-splitx-token-key-change-this-in-production";
 const googleClient = new OAuth2Client();
 
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -248,7 +248,7 @@ export const sendVerificationCode = async (req: Request, res: Response): Promise
     if (twilioClient && twilioPhoneNumber && !disableRealSms && !isMockNumber) {
       try {
         await twilioClient.messages.create({
-          body: `Your Kryze verification code is: ${code}. It expires in 5 minutes.`,
+          body: `Your SplitX verification code is: ${code}. It expires in 5 minutes.`,
           from: twilioPhoneNumber,
           to: normalizedPhone,
         });

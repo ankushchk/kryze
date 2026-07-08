@@ -83,7 +83,7 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           
           <View style={styles.logoBlock}>
-            <Text style={[styles.logo, { color: theme.primary }]}>Splikaro</Text>
+            <Text style={[styles.logo, { color: theme.primary }]}>SplitX</Text>
             <Text style={[styles.welcomeText, { color: theme.text2 }]}>Welcome back 👋</Text>
           </View>
 

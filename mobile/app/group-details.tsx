@@ -611,7 +611,7 @@ export default function GroupDetailsScreen() {
                 text: 'Send Invite Link',
                 onPress: () => {
                   Share.share({
-                    message: `Hey! Join my group "${group?.name || 'Kryze'}" on Splikaro to split expenses: ${response.inviteLink}`,
+                    message: `Hey! Join my group "${group?.name || 'SplitX'}" on SplitX to split expenses: ${response.inviteLink}`,
                   });
                 },
               },
@@ -1107,7 +1107,7 @@ export default function GroupDetailsScreen() {
 
   const handleSendReminder = async (debt: SimplifiedDebt) => {
     try {
-      const message = `Hi ${debt.fromName}! Just a friendly reminder that you owe ₹${debt.amount} to ${debt.toName} in our Split Group "${group?.name || 'Splikaro'}". You can settle this directly in the app!`;
+      const message = `Hi ${debt.fromName}! Just a friendly reminder that you owe ₹${debt.amount} to ${debt.toName} in our Split Group "${group?.name || 'SplitX'}". You can settle this directly in the app!`;
       await Share.share({ message });
     } catch (err: any) {
       console.error('Failed to send reminder:', err);

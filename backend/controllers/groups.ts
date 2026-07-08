@@ -296,7 +296,7 @@ export const addGroupMember = async (req: AuthRequest, res: Response): Promise<v
         const inviterName = req.user?.name || "A friend";
 
         await twilioClient.messages.create({
-          body: `Hi! ${inviterName} added you to the group "${groupName}" on Splikaro. Open the app to join: ${inviteLink}`,
+          body: `Hi! ${inviterName} added you to the group "${groupName}" on SplitX. Open the app to join: ${inviteLink}`,
           from: twilioPhoneNumber,
           to: targetUser.phoneNumber,
         });
@@ -1151,7 +1151,7 @@ export const handleMockCheckoutPage = async (req: Request, res: Response): Promi
                 </div>
                 <div class="detail-row">
                   <div class="detail-label">Description</div>
-                  <div class="detail-val">Kryze Settle Split</div>
+                  <div class="detail-val">SplitX Settle Split</div>
                 </div>
               </div>
               
@@ -1289,7 +1289,7 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
             <p>Your settlement payment of</p>
             <div class="amount">₹${amountVal.toFixed(2)}</div>
             <p>has been logged in the group ledger.</p>
-            <a href="frontendapp://group-details?id=${groupId}" class="btn">Return to Kryze</a>
+            <a href="frontendapp://group-details?id=${groupId}" class="btn">Return to SplitX</a>
           </div>
         </body>
       </html>

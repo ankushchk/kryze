@@ -51,7 +51,7 @@ export default function CompleteProfileScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           
           <View style={styles.logoBlock}>
-            <Text style={[styles.logo, { color: theme.primary }]}>Splikaro</Text>
+            <Text style={[styles.logo, { color: theme.primary }]}>SplitX</Text>
             <Text style={[styles.welcomeText, { color: theme.text2 }]}>Almost there! Complete your profile 🚀</Text>
           </View>
 

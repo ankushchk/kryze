@@ -84,7 +84,7 @@ export default function SignUpScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           
           <View style={styles.logoBlock}>
-            <Text style={[styles.logo, { color: theme.primary }]}>Splikaro</Text>
+            <Text style={[styles.logo, { color: theme.primary }]}>SplitX</Text>
             <Text style={[styles.tagline, { color: theme.text3 }]}>Your shared expense tracker</Text>
           </View>
 
