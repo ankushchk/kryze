@@ -145,10 +145,21 @@ export const googleSignIn = async (req: Request, res: Response): Promise<void> =
 
     let payload;
     const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_IOS_CLIENT_ID = process.env.GOOGLE_IOS_CLIENT_ID;
+
+    const allowedAudiences: string[] = [];
+    if (GOOGLE_CLIENT_ID) allowedAudiences.push(GOOGLE_CLIENT_ID);
+    if (GOOGLE_IOS_CLIENT_ID) allowedAudiences.push(GOOGLE_IOS_CLIENT_ID);
+
+    if (allowedAudiences.length === 0) {
+      res.status(500).json({ error: "Google Sign-In is not configured on the server" });
+      return;
+    }
+
     try {
       const ticket = await googleClient.verifyIdToken({
         idToken,
-        audience: GOOGLE_CLIENT_ID,
+        audience: allowedAudiences,
       });
       payload = ticket.getPayload();
     } catch (err: any) {
