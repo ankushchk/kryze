@@ -45,8 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
 
-  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const webEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const iosEnv = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+
+  const webClientId = webEnv && webEnv !== 'undefined' && webEnv.trim() !== ''
+    ? webEnv
+    : '275273722443-g1s84gfspgk1l22l326c1jnti9afktno.apps.googleusercontent.com';
+
+  const iosClientId = iosEnv && iosEnv !== 'undefined' && iosEnv.trim() !== ''
+    ? iosEnv
+    : '275273722443-a123pm053nlr740ma4or23ilp70dmkvo.apps.googleusercontent.com';
   
   const isGoogleConfigured = !!(
     (webClientId && webClientId.trim() !== '' && webClientId !== 'undefined') ||

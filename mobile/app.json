@@ -21,8 +21,12 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.frontendapp",
       "permissions": [
-        "RECEIVE_SMS",
-        "READ_SMS"
+        "android.permission.RECEIVE_SMS",
+        "android.permission.READ_SMS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
       ]
     },
     "web": {
@@ -74,7 +78,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0274516d-6be6-4959-8947-b21efee9601b"
+        "projectId": "35c3955c-12c1-4931-92e6-47b059afc8dc"
       }
     },
     "owner": "ankushchk"
