@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { AuthInput, PrimaryButton, SocialButton, Divider } from '@/components/auth-ui';
 import { useTheme } from '@/hooks/use-theme';
@@ -18,6 +18,8 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   const handleSignUp = async () => {
     if (!email || !password || !name) {
@@ -101,19 +103,29 @@ export default function SignUpScreen() {
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              blurOnSubmit={false}
             />
             <AuthInput 
+              ref={emailRef}
               label="Email" 
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              blurOnSubmit={false}
             />
             <AuthInput 
+              ref={passwordRef}
               label="Password" 
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              returnKeyType="done"
+              onSubmitEditing={handleSignUp}
             />
           </View>
 

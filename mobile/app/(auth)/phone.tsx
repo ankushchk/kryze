@@ -102,6 +102,8 @@ export default function PhoneAuthScreen() {
                   keyboardType="phone-pad"
                   placeholder="+919876543210"
                   autoComplete="tel"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSendOTP}
                 />
               </View>
 
@@ -128,6 +130,8 @@ export default function PhoneAuthScreen() {
                   keyboardType="number-pad"
                   placeholder="123456"
                   maxLength={6}
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerifyOTP}
                 />
               </View>
 

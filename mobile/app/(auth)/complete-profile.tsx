@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowRight } from 'lucide-react-native';
 import { AuthInput, PrimaryButton } from '@/components/auth-ui';
@@ -17,6 +17,7 @@ export default function CompleteProfileScreen() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const emailRef = useRef<TextInput>(null);
 
   // If user already has an email, we don't need to ask for it again
   const showEmailInput = !user?.email;
@@ -63,16 +64,22 @@ export default function CompleteProfileScreen() {
                 onChangeText={setName}
                 placeholder="John Doe"
                 autoCapitalize="words"
+                returnKeyType={showEmailInput ? "next" : "done"}
+                onSubmitEditing={() => showEmailInput ? emailRef.current?.focus() : handleSaveProfile()}
+                blurOnSubmit={!showEmailInput}
               />
 
               {showEmailInput && (
                 <AuthInput 
+                  ref={emailRef}
                   label="Email Address (Optional)" 
                   value={email}
                   onChangeText={setEmail}
                   placeholder="john@example.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSaveProfile}
                 />
               )}
             </View>

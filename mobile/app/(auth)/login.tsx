@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, ScrollView, Text, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, TextInput } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { ArrowRight } from 'lucide-react-native';
 import { AuthInput, PrimaryButton, SocialButton, Divider, PinDots } from '@/components/auth-ui';
@@ -18,6 +18,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   const handleSignIn = async () => {
     if (!email || !password) {
@@ -94,12 +95,18 @@ export default function LoginScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              blurOnSubmit={false}
             />
             <AuthInput 
+              ref={passwordRef}
               label="Password" 
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              returnKeyType="done"
+              onSubmitEditing={handleSignIn}
             />
             <TouchableOpacity style={styles.forgotPassword}>
               <Text style={[styles.forgotText, { color: theme.primary }]}>Forgot password?</Text>

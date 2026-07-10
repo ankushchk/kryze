@@ -64,6 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Configure Google Sign-in client conditionally to prevent crashes when keys are missing
     if (isGoogleConfigured) {
+      console.log('--- [DIAGNOSTIC] Configuring Google Sign-In ---');
+      console.log('webClientId:', webClientId);
+      console.log('iosClientId:', iosClientId);
+      console.log('----------------------------------------------');
+      
       GoogleSignin.configure({
         webClientId: webClientId && webClientId !== 'undefined' ? webClientId : undefined,
         iosClientId: iosClientId && iosClientId !== 'undefined' ? iosClientId : undefined,
