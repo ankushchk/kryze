@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/dbConnect.js";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "secret-kryze-token-key-change-this-in-production";
+const JWT_SECRET = process.env.JWT_SECRET ?? "secret-splitx-token-key-change-this-in-production";
 
 export interface AuthRequest extends Request {
   userId?: string;

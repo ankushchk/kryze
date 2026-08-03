@@ -6,7 +6,7 @@ import twilio from "twilio";
 import { prisma } from "../config/dbConnect.js";
 import { AuthRequest } from "../middleware/auth.js";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "secret-kryze-token-key-change-this-in-production";
+const JWT_SECRET = process.env.JWT_SECRET ?? "secret-splitx-token-key-change-this-in-production";
 const googleClient = new OAuth2Client();
 
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -145,10 +145,21 @@ export const googleSignIn = async (req: Request, res: Response): Promise<void> =
 
     let payload;
     const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_IOS_CLIENT_ID = process.env.GOOGLE_IOS_CLIENT_ID;
+
+    const allowedAudiences: string[] = [];
+    if (GOOGLE_CLIENT_ID) allowedAudiences.push(GOOGLE_CLIENT_ID);
+    if (GOOGLE_IOS_CLIENT_ID) allowedAudiences.push(GOOGLE_IOS_CLIENT_ID);
+
+    if (allowedAudiences.length === 0) {
+      res.status(500).json({ error: "Google Sign-In is not configured on the server" });
+      return;
+    }
+
     try {
       const ticket = await googleClient.verifyIdToken({
         idToken,
-        audience: GOOGLE_CLIENT_ID,
+        audience: allowedAudiences,
       });
       payload = ticket.getPayload();
     } catch (err: any) {
@@ -237,7 +248,7 @@ export const sendVerificationCode = async (req: Request, res: Response): Promise
     if (twilioClient && twilioPhoneNumber && !disableRealSms && !isMockNumber) {
       try {
         await twilioClient.messages.create({
-          body: `Your Kryze verification code is: ${code}. It expires in 5 minutes.`,
+          body: `Your SplitX verification code is: ${code}. It expires in 5 minutes.`,
           from: twilioPhoneNumber,
           to: normalizedPhone,
         });

@@ -3,19 +3,20 @@ import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet,
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
 
-export function AuthInput({ label, ...props }: TextInputProps & { label: string }) {
+export const AuthInput = React.forwardRef<TextInput, TextInputProps & { label: string }>(({ label, ...props }, ref) => {
   const theme = useTheme();
   return (
     <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
       <Text style={[styles.inputLabel, { color: theme.text3 }]}>{label}</Text>
       <TextInput 
+        ref={ref}
         style={[styles.inputValue, { color: theme.text }]} 
         placeholderTextColor={theme.text3}
         {...props} 
       />
     </View>
   );
-}
+});
 
 export const PrimaryButton = React.forwardRef<View, TouchableOpacityProps & { title: string; loading?: boolean; iconRight?: React.ReactNode }>(({ title, loading, style, iconRight, ...props }, ref) => {
   const theme = useTheme();

@@ -296,7 +296,7 @@ export const addGroupMember = async (req: AuthRequest, res: Response): Promise<v
         const inviterName = req.user?.name || "A friend";
 
         await twilioClient.messages.create({
-          body: `Hi! ${inviterName} added you to the group "${groupName}" on Splikaro. Open the app to join: ${inviteLink}`,
+          body: `Hi! ${inviterName} added you to the group "${groupName}" on SplitX. Open the app to join: ${inviteLink}`,
           from: twilioPhoneNumber,
           to: targetUser.phoneNumber,
         });
@@ -495,6 +495,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
         category: e.category,
         status: e.status,
         receiptUrl: e.receiptUrl,
+        items: e.items,
         paidById: e.paidById,
         paidBy: e.paidBy,
         splits: e.splits.map((s: any) => ({
@@ -517,7 +518,7 @@ export const getGroupDetails = async (req: AuthRequest, res: Response): Promise<
 export const createExpense = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const groupId = req.params.id as string;
-    const { description, amount, date, paidById, splits, category, status, receiptUrl } = req.body;
+    const { description, amount, date, paidById, splits, category, status, receiptUrl, items } = req.body;
     const userId = req.userId!;
 
     if (!description || !description.trim()) {
@@ -578,6 +579,7 @@ export const createExpense = async (req: AuthRequest, res: Response): Promise<vo
           category: category ? category.trim() : null,
           status: status && typeof status === "string" ? status.trim() : "APPROVED",
           receiptUrl: receiptUrl && typeof receiptUrl === "string" ? receiptUrl.trim() : null,
+          items: items ? (typeof items === "string" ? items : JSON.stringify(items)) : null,
         },
       });
 
@@ -802,7 +804,7 @@ export const updateExpense = async (req: AuthRequest, res: Response): Promise<vo
     const groupId = req.params.id as string;
     const expenseId = req.params.expenseId as string;
     const userId = req.userId!;
-    const { description, amount, date, category, splits, receiptUrl } = req.body;
+    const { description, amount, date, category, splits, receiptUrl, items } = req.body;
 
     // 1. Load the expense and verify it belongs to this group
     const expense = await prisma.expense.findFirst({
@@ -857,6 +859,7 @@ export const updateExpense = async (req: AuthRequest, res: Response): Promise<vo
           date: date ? new Date(date) : expense.date,
           category: category !== undefined ? (category ? category.trim() : null) : expense.category,
           receiptUrl: receiptUrl !== undefined ? (receiptUrl ? receiptUrl.trim() : null) : expense.receiptUrl,
+          items: items !== undefined ? (items ? (typeof items === "string" ? items : JSON.stringify(items)) : null) : expense.items,
         },
       });
 
@@ -921,5 +924,379 @@ export const deleteExpense = async (req: AuthRequest, res: Response): Promise<vo
   } catch (error: any) {
     console.error("Delete expense error:", error);
     res.status(500).json({ error: error.message || "Failed to delete expense" });
+  }
+};
+
+// POST /api/groups/:id/settlement/pay
+export const createSettlementPaymentLink = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const groupId = req.params.id as string;
+    const { amount, toUserId } = req.body;
+    const userId = req.userId!;
+
+    // 1. Verify requester is a member of the group
+    const isRequesterMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } }
+    });
+    if (!isRequesterMember) {
+      res.status(403).json({ error: "Access denied. You are not a member of this group." });
+      return;
+    }
+
+    if (!amount || amount <= 0) {
+      res.status(400).json({ error: "Valid payment amount is required" });
+      return;
+    }
+
+    // Resolve users
+    const fromUser = await prisma.user.findUnique({ where: { id: userId } });
+    const toUser = await prisma.user.findUnique({ where: { id: toUserId } });
+
+    if (!fromUser || !toUser) {
+      res.status(404).json({ error: "Sender or receiver user record not found" });
+      return;
+    }
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const description = `Settlement: ${fromUser.name || "User"} to ${toUser.name || "User"}`;
+    const apiHost = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.11:3000";
+
+    if (keyId && keySecret) {
+      // Direct integration with real Razorpay Checkout API
+      const authStr = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+      
+      const rzpResponse = await fetch("https://api.razorpay.com/v1/payment_links", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${authStr}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: Math.round(amount * 100), // in paise (e.g. ₹925.98 -> 92598)
+          currency: "INR",
+          accept_partial: false,
+          description: description,
+          callback_url: `${apiHost}/api/groups/settlement/callback?groupId=${groupId}&amount=${amount}&fromUserId=${userId}&toUserId=${toUserId}`,
+          callback_method: "get"
+        })
+      });
+
+      const data = await rzpResponse.json();
+      if (data.short_url) {
+        res.json({ paymentUrl: data.short_url });
+      } else {
+        console.error("Razorpay Payment Link creation failed:", data);
+        res.status(400).json({ error: data.error?.description || "Failed to create Razorpay checkout link" });
+      }
+    } else {
+      // Sandbox Mock mode
+      const mockUrl = `${apiHost}/api/groups/settlement/mock-checkout?groupId=${groupId}&amount=${amount}&fromUserId=${userId}&toUserId=${toUserId}`;
+      res.json({ paymentUrl: mockUrl });
+    }
+  } catch (error: any) {
+    console.error("Create payment link error:", error);
+    res.status(500).json({ error: error.message || "Failed to create payment link" });
+  }
+};
+
+// GET /api/groups/settlement/mock-checkout
+export const handleMockCheckoutPage = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { groupId, amount, fromUserId, toUserId } = req.query;
+
+    const fromUser = await prisma.user.findUnique({ where: { id: fromUserId as string } });
+    const toUser = await prisma.user.findUnique({ where: { id: toUserId as string } });
+
+    const payerName = fromUser?.name || "Payer";
+    const payeeName = toUser?.name || "Payee";
+    const amountVal = parseFloat(amount as string).toFixed(2);
+    const callbackUrl = `/api/groups/settlement/callback?groupId=${groupId}&amount=${amount}&fromUserId=${fromUserId}&toUserId=${toUserId}&razorpay_payment_id=pay_mock_${Date.now()}`;
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Razorpay Test Sandbox</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              background-color: #f4f6f9;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              height: 100vh;
+              margin: 0;
+              color: #2c3e50;
+            }
+            .checkout-container {
+              background: #ffffff;
+              width: 100%;
+              max-width: 400px;
+              border-radius: 12px;
+              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+              overflow: hidden;
+              border: 1px solid #e1e8ed;
+            }
+            .header {
+              background-color: #0b1a30;
+              color: #ffffff;
+              padding: 24px;
+              text-align: center;
+            }
+            .header h2 {
+              margin: 0;
+              font-size: 18px;
+              font-weight: 600;
+              letter-spacing: 0.5px;
+            }
+            .header p {
+              margin: 4px 0 0;
+              font-size: 11px;
+              color: #00b0ff;
+              text-transform: uppercase;
+              font-weight: bold;
+            }
+            .content {
+              padding: 24px;
+            }
+            .amount-section {
+              text-align: center;
+              margin-bottom: 24px;
+            }
+            .amount-label {
+              font-size: 12px;
+              color: #7f8c8d;
+              text-transform: uppercase;
+            }
+            .amount-value {
+              font-size: 32px;
+              font-weight: 700;
+              color: #2c3e50;
+              margin: 4px 0;
+            }
+            .details-list {
+              border-top: 1px solid #f1f2f6;
+              border-bottom: 1px solid #f1f2f6;
+              padding: 16px 0;
+              margin-bottom: 24px;
+            }
+            .detail-row {
+              display: flex;
+              justify-content: space-between;
+              font-size: 13px;
+              margin-bottom: 8px;
+            }
+            .detail-row:last-child {
+              margin-bottom: 0;
+            }
+            .detail-label {
+              color: #95a5a6;
+            }
+            .detail-val {
+              font-weight: 600;
+            }
+            .btn {
+              display: block;
+              width: 100%;
+              padding: 14px;
+              border-radius: 6px;
+              font-weight: bold;
+              font-size: 15px;
+              text-align: center;
+              cursor: pointer;
+              box-sizing: border-box;
+              text-decoration: none;
+              margin-bottom: 12px;
+              transition: background 0.2s;
+            }
+            .btn-pay {
+              background-color: #3399cc;
+              color: #ffffff;
+              border: none;
+            }
+            .btn-pay:hover {
+              background-color: #267fa6;
+            }
+            .btn-cancel {
+              background-color: #ffffff;
+              color: #e74c3c;
+              border: 1px solid #e74c3c;
+            }
+            .btn-cancel:hover {
+              background-color: #fdf2f2;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="checkout-container">
+            <div class="header">
+              <h2>Razorpay Checkout</h2>
+              <p>Test Sandbox Mode</p>
+            </div>
+            <div class="content">
+              <div class="amount-section">
+                <div class="amount-label">Payment Amount</div>
+                <div class="amount-value">₹${amountVal}</div>
+              </div>
+              <div class="details-list">
+                <div class="detail-row">
+                  <div class="detail-label">Payer</div>
+                  <div class="detail-val">${payerName}</div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Payee</div>
+                  <div class="detail-val">${payeeName}</div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Description</div>
+                  <div class="detail-val">SplitX Settle Split</div>
+                </div>
+              </div>
+              
+              <a href="${callbackUrl}" class="btn btn-pay">Simulate Payment Success</a>
+              <a href="javascript:window.close();" class="btn btn-cancel" onclick="alert('Payment Cancelled'); window.location.href='frontendapp://group-details?id=${groupId}'">Cancel Payment</a>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (error: any) {
+    console.error("Render mock checkout error:", error);
+    res.status(500).send("Failed to render sandbox checkout");
+  }
+};
+
+// GET /api/groups/settlement/callback
+export const handleSettlementCallback = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { groupId, amount, fromUserId, toUserId } = req.query as Record<string, string>;
+
+    const fromUser = await prisma.user.findUnique({ where: { id: fromUserId } });
+    const toUser = await prisma.user.findUnique({ where: { id: toUserId } });
+
+    if (!fromUser || !toUser) {
+      res.status(404).send("User records not found");
+      return;
+    }
+
+    const description = `Settlement: ${fromUser.name || "User"} to ${toUser.name || "User"}`;
+    const amountVal = parseFloat(amount);
+
+    // Save settled transaction in DB
+    await prisma.expense.create({
+      data: {
+        groupId,
+        description,
+        amount: amountVal,
+        paidById: fromUserId,
+        status: "APPROVED",
+        splits: {
+          create: [
+            {
+              userId: toUserId,
+              amount: amountVal
+            }
+          ]
+        }
+      }
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Successful</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              background-color: #faf7f2;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              color: #231f18;
+              padding: 20px;
+              text-align: center;
+            }
+            .card {
+              background: #ffffff;
+              border-radius: 16px;
+              padding: 32px;
+              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+              max-width: 360px;
+              width: 100%;
+              border: 1px solid rgba(0, 0, 0, 0.04);
+              box-sizing: border-box;
+            }
+            .icon {
+              width: 64px;
+              height: 64px;
+              border-radius: 32px;
+              background: #edf3ed;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin: 0 auto 20px;
+              color: #2e7d32;
+              font-size: 32px;
+              font-weight: bold;
+            }
+            h1 {
+              font-size: 20px;
+              margin-bottom: 8px;
+              font-weight: 700;
+            }
+            p {
+              font-size: 14px;
+              color: #7f8c8d;
+              line-height: 1.5;
+              margin-bottom: 24px;
+            }
+            .amount {
+              font-size: 28px;
+              font-weight: bold;
+              color: #2e7d32;
+              margin-bottom: 24px;
+            }
+            .btn {
+              background-color: #e6a23c;
+              color: #ffffff;
+              border: none;
+              padding: 12px 24px;
+              border-radius: 8px;
+              font-weight: bold;
+              font-size: 14px;
+              text-decoration: none;
+              cursor: pointer;
+              display: inline-block;
+              transition: background 0.2s;
+            }
+            .btn:hover {
+              background-color: #d18d2c;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="icon">✓</div>
+            <h1>Payment Successful</h1>
+            <p>Your settlement payment of</p>
+            <div class="amount">₹${amountVal.toFixed(2)}</div>
+            <p>has been logged in the group ledger.</p>
+            <a href="frontendapp://group-details?id=${groupId}" class="btn">Return to SplitX</a>
+          </div>
+        </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (error: any) {
+    console.error("Handle settlement callback error:", error);
+    res.status(500).send("Failed to log payment transaction");
   }
 };

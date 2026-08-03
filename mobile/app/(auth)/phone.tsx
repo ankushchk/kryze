@@ -85,7 +85,7 @@ export default function PhoneAuthScreen() {
           </TouchableOpacity>
 
           <View style={styles.logoBlock}>
-            <Text style={[styles.logo, { color: theme.primary }]}>Splikaro</Text>
+            <Text style={[styles.logo, { color: theme.primary }]}>SplitX</Text>
             <Text style={[styles.welcomeText, { color: theme.text2 }]}>
               {step === 'phone' ? 'Log in with phone number 📱' : 'Enter 6-digit code 🔑'}
             </Text>
@@ -102,6 +102,8 @@ export default function PhoneAuthScreen() {
                   keyboardType="phone-pad"
                   placeholder="+919876543210"
                   autoComplete="tel"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSendOTP}
                 />
               </View>
 
@@ -128,6 +130,8 @@ export default function PhoneAuthScreen() {
                   keyboardType="number-pad"
                   placeholder="123456"
                   maxLength={6}
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerifyOTP}
                 />
               </View>
 

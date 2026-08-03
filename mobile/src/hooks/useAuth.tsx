@@ -45,8 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
 
-  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const webEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const iosEnv = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+
+  const webClientId = webEnv && webEnv !== 'undefined' && webEnv.trim() !== ''
+    ? webEnv
+    : '275273722443-g1s84gfspgk1l22l326c1jnti9afktno.apps.googleusercontent.com';
+
+  const iosClientId = iosEnv && iosEnv !== 'undefined' && iosEnv.trim() !== ''
+    ? iosEnv
+    : '275273722443-a123pm053nlr740ma4or23ilp70dmkvo.apps.googleusercontent.com';
   
   const isGoogleConfigured = !!(
     (webClientId && webClientId.trim() !== '' && webClientId !== 'undefined') ||
@@ -56,6 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Configure Google Sign-in client conditionally to prevent crashes when keys are missing
     if (isGoogleConfigured) {
+      console.log('--- [DIAGNOSTIC] Configuring Google Sign-In ---');
+      console.log('webClientId:', webClientId);
+      console.log('iosClientId:', iosClientId);
+      console.log('----------------------------------------------');
+      
       GoogleSignin.configure({
         webClientId: webClientId && webClientId !== 'undefined' ? webClientId : undefined,
         iosClientId: iosClientId && iosClientId !== 'undefined' ? iosClientId : undefined,

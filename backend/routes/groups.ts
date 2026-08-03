@@ -12,10 +12,17 @@ import {
   deleteGroup,
   removeGroupMember,
   verifyExpense,
-  updateMemberUpi
+  updateMemberUpi,
+  createSettlementPaymentLink,
+  handleMockCheckoutPage,
+  handleSettlementCallback
 } from "../controllers/groups.js";
 
 const router = Router();
+
+// Public payment sandbox and callbacks
+router.get("/settlement/mock-checkout", handleMockCheckoutPage);
+router.get("/settlement/callback", handleSettlementCallback);
 
 // POST /api/groups
 router.post("/", authenticateToken, createGroup);
@@ -52,5 +59,8 @@ router.patch("/:id/expenses/:expenseId/verify", authenticateToken, verifyExpense
 
 // PATCH /api/groups/:id/members/:memberId/upi
 router.patch("/:id/members/:memberId/upi", authenticateToken, updateMemberUpi);
+
+// POST /api/groups/:id/settlement/pay
+router.post("/:id/settlement/pay", authenticateToken, createSettlementPaymentLink);
 
 export default router;

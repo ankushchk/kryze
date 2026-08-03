@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import * as WebBrowser from 'expo-web-browser';
 import * as ImagePicker from 'expo-image-picker';
 import {
   StyleSheet,
@@ -20,7 +21,8 @@ import {
   RefreshControl,
   TouchableWithoutFeedback,
   Keyboard,
-  useWindowDimensions
+  useWindowDimensions,
+  Dimensions
 } from 'react-native';
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -36,6 +38,9 @@ import {
   Users,
   Check,
   X,
+  AlertTriangle,
+  Edit2,
+  Trash2,
   CreditCard,
   UserPlus,
   Search,
@@ -96,6 +101,7 @@ type GroupExpense = {
   category?: string | null;
   status?: string;
   receiptUrl?: string | null;
+  items?: string | null;
   paidById: string;
   paidBy: {
     id: string;
@@ -122,6 +128,179 @@ type GroupDetails = {
   icon?: string;
 };
 
+interface ItemCardProps {
+  item: { name: string; quantity: number; price: number };
+  itemIdx: number;
+  shares: Record<string, number>;
+  members: Member[];
+  currentUser: any;
+  theme: any;
+  onToggleMember: (itemIdx: number, memberId: string) => void;
+  onAdjustMemberShare: (itemIdx: number, memberId: string, delta: number) => void;
+  onToggleAll: (itemIdx: number) => void;
+}
+
+const ItemCard = React.memo(({
+  item,
+  itemIdx,
+  shares,
+  members,
+  currentUser,
+  theme,
+  onToggleMember,
+  onAdjustMemberShare,
+  onToggleAll
+}: ItemCardProps) => {
+  let hasAnyActive = false;
+  members.forEach((m) => {
+    if ((shares[m.id] || 0) > 0) {
+      hasAnyActive = true;
+    }
+  });
+  
+  let isAllSelected = true;
+  members.forEach((m) => {
+    if ((shares[m.id] || 0) === 0) {
+      isAllSelected = false;
+    }
+  });
+
+  const totalShares = members.reduce((sum, m) => sum + (shares[m.id] || 0), 0);
+  const isOverAllocated = totalShares > item.quantity;
+  const isFullyAllocated = totalShares === item.quantity;
+
+  const scaleAnim = React.useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isFullyAllocated) {
+      Animated.sequence([
+        Animated.timing(scaleAnim, { toValue: 1.15, duration: 150, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true })
+      ]).start();
+    }
+  }, [isFullyAllocated]);
+  
+  const isDark = theme.background === '#141210';
+  const greenBg = isDark ? '#122B1E' : '#EDF3ED';
+  const greenBorder = isDark ? '#1E5A38' : '#C8DCD0';
+  const greenText = isDark ? '#48B87A' : '#059669';
+
+  const redBg = isDark ? '#2D1612' : '#F7EEEC';
+  const redBorder = isDark ? '#8A2B1E' : '#EAD0CC';
+  const redText = isDark ? '#E86050' : '#DC2626';
+
+  return (
+    <View style={[
+      styles.itemCard, 
+      { 
+        borderColor: isFullyAllocated ? greenBorder : isOverAllocated ? redBorder : theme.border,
+        backgroundColor: isFullyAllocated ? greenBg : isOverAllocated ? redBg : theme.surface2
+      }
+    ]}>
+      <View style={styles.itemCardHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.itemNameText, { color: theme.text }]}>{item.name}</Text>
+          <Text style={[styles.itemPriceLabel, { color: theme.text3 }]}>
+            {item.quantity} x ₹{(item.price / item.quantity).toFixed(2)}
+          </Text>
+          <Animated.View style={[
+            styles.allocationRow,
+            { transform: [{ scale: scaleAnim }] }
+          ]}>
+            {isFullyAllocated && (
+              <Check size={12} color={greenText} style={{ marginRight: 4 }} />
+            )}
+            {isOverAllocated && (
+              <AlertTriangle size={12} color={redText} style={{ marginRight: 4 }} />
+            )}
+            <Text style={[
+              styles.allocationBadgeText, 
+              isFullyAllocated && { color: greenText, fontWeight: 'bold' },
+              isOverAllocated && { color: redText, fontWeight: 'bold' },
+              !isFullyAllocated && !isOverAllocated && { color: theme.text3 }
+            ]}>
+              {totalShares} of {item.quantity} split
+            </Text>
+          </Animated.View>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[styles.itemPriceText, { color: theme.primary }]}>
+            ₹{item.price.toFixed(2)}
+          </Text>
+          <TouchableOpacity 
+            style={[styles.itemToggleAllBtn, { backgroundColor: theme.surface2 }]}
+            onPress={() => onToggleAll(itemIdx)}
+          >
+            <Text style={[styles.itemToggleAllText, { color: theme.primary }]}>
+              {!hasAnyActive ? "Select All" : isAllSelected ? "Clear All" : "Select All"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      <View style={styles.itemMembersRow}>
+        {members.map((m) => {
+          const count = shares[m.id] || 0;
+          const isSelected = count > 0;
+          const initial = m.name ? m.name.charAt(0).toUpperCase() : '?';
+          const memberCost = totalShares > 0 ? (item.price * (count / totalShares)) : 0;
+          
+          return (
+            <View key={m.id} style={styles.itemMemberColumn}>
+              <TouchableOpacity
+                style={[
+                  styles.itemMemberAvatarContainer,
+                  isSelected && { borderColor: theme.primary, backgroundColor: theme.primaryDim }
+                ]}
+                onPress={() => onToggleMember(itemIdx, m.id)}
+              >
+                <View style={[
+                  styles.itemAvatarCircle,
+                  { backgroundColor: isSelected ? theme.primary : theme.border }
+                ]}>
+                  <Text style={[styles.itemAvatarText, { color: isSelected ? '#FFF' : theme.text3 }]}>
+                    {initial}
+                  </Text>
+                </View>
+                <Text 
+                  numberOfLines={1} 
+                  style={[
+                    styles.itemMemberNameText, 
+                    { color: isSelected ? theme.primary : theme.text3 }
+                  ]}
+                >
+                  {m.id === currentUser?.id ? 'You' : m.name.split(' ')[0]}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={[styles.counterRow, { borderColor: isSelected ? theme.primary : theme.border }]}>
+                <TouchableOpacity 
+                  style={[styles.counterBtn, { backgroundColor: theme.surface2 }]} 
+                  onPress={() => onAdjustMemberShare(itemIdx, m.id, -1)}
+                  disabled={count === 0}
+                >
+                  <Text style={[styles.counterBtnText, { color: count === 0 ? theme.text3 : theme.primary }]}>-</Text>
+                </TouchableOpacity>
+                <Text style={[styles.counterValText, { color: theme.text }]}>{count}</Text>
+                <TouchableOpacity 
+                  style={[styles.counterBtn, { backgroundColor: theme.surface2 }]} 
+                  onPress={() => onAdjustMemberShare(itemIdx, m.id, 1)}
+                >
+                  <Text style={[styles.counterBtnText, { color: theme.primary }]}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.memberCostText, { color: isSelected ? theme.primary : theme.text3 }]}>
+                ₹{memberCost.toFixed(2)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+});
+
 const getCategoryIconAndColor = (description: string) => {
   const desc = description.toLowerCase();
   if (desc.includes('food') || desc.includes('dinner') || desc.includes('lunch') || desc.includes('restaurant') || desc.includes('swiggy') || desc.includes('zomato') || desc.includes('cafe')) {
@@ -140,6 +319,100 @@ const getCategoryIconAndColor = (description: string) => {
     return { icon: ShoppingBag, label: 'Shopping', color: '#4CD964' };
   }
   return { icon: Package, label: 'Others', color: '#8E8E93' };
+};
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CONFETTI_COLORS = ['#E6A23C', '#2E7D32', '#3399cc', '#e74c3c', '#9b59b6', '#1abc9c'];
+
+const ConfettiCannon = ({ active }: { active: boolean }) => {
+  const [confettiItems] = React.useState(() =>
+    Array.from({ length: 65 }).map(() => {
+      return {
+        key: Math.random().toString(),
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        size: Math.random() * 6 + 6,
+        left: Math.random() * SCREEN_WIDTH,
+        yAnim: new Animated.Value(-20),
+        xAnim: new Animated.Value(0),
+        rotateAnim: new Animated.Value(0),
+      };
+    })
+  );
+
+  React.useEffect(() => {
+    if (active) {
+      const animations = confettiItems.map((item) => {
+        const duration = Math.random() * 2000 + 1500;
+        const delay = Math.random() * 500;
+        const targetX = (Math.random() - 0.5) * 120;
+        const targetRotate = Math.random() * 3 + 1;
+
+        return Animated.parallel([
+          Animated.timing(item.yAnim, {
+            toValue: SCREEN_HEIGHT + 20,
+            duration,
+            delay,
+            useNativeDriver: true,
+          }),
+          Animated.timing(item.xAnim, {
+            toValue: targetX,
+            duration,
+            delay,
+            useNativeDriver: true,
+          }),
+          Animated.timing(item.rotateAnim, {
+            toValue: targetRotate,
+            duration,
+            delay,
+            useNativeDriver: true,
+          }),
+        ]);
+      });
+
+      Animated.parallel(animations).start();
+    } else {
+      // Reset animations to top when inactive so it can play again
+      confettiItems.forEach(item => {
+        item.yAnim.setValue(-20);
+        item.xAnim.setValue(0);
+        item.rotateAnim.setValue(0);
+      });
+    }
+  }, [active]);
+
+  if (!active) return null;
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {confettiItems.map((item) => {
+        const rotateInterpolate = item.rotateAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '360deg'],
+        });
+
+        return (
+          <Animated.View
+            key={item.key}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: item.left,
+              width: item.size,
+              height: item.size * (Math.random() > 0.5 ? 1.5 : 1),
+              borderRadius: Math.random() > 0.7 ? item.size : 2,
+              backgroundColor: item.color,
+              zIndex: 9999,
+              transform: [
+                { translateY: item.yAnim },
+                { translateX: item.xAnim },
+                { rotate: rotateInterpolate },
+              ],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
 };
 
 export default function GroupDetailsScreen() {
@@ -167,6 +440,9 @@ export default function GroupDetailsScreen() {
   const [expenseCategory, setExpenseCategory] = useState('Food');
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
   const [splitEqually, setSplitEqually] = useState(true);
+  const [splitMode, setSplitMode] = useState<'EQUALLY' | 'CUSTOM' | 'ITEMS'>('EQUALLY');
+  const [parsedItems, setParsedItems] = useState<Array<{ name: string; quantity: number; price: number }>>([]);
+  const [itemShares, setItemShares] = useState<Record<number, Record<string, number>>>({}); // itemIndex -> { userId: shareCount }
   const [customSplits, setCustomSplits] = useState<Record<string, string>>({}); // userId -> amount
   const [submittingExpense, setSubmittingExpense] = useState(false);
   const [monthFilter, setMonthFilter] = useState('All');
@@ -174,6 +450,9 @@ export default function GroupDetailsScreen() {
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [selectedReceiptImage, setSelectedReceiptImage] = useState<string | null>(null);
   const [editingExpense, setEditingExpense] = useState<GroupExpense | null>(null);
+  const [detailExpense, setDetailExpense] = useState<GroupExpense | null>(null);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   // Add Member Modal States
   const [memberModalVisible, setMemberModalVisible] = useState(false);
@@ -332,7 +611,7 @@ export default function GroupDetailsScreen() {
                 text: 'Send Invite Link',
                 onPress: () => {
                   Share.share({
-                    message: `Hey! Join my group "${group?.name || 'Kryze'}" on Splikaro to split expenses: ${response.inviteLink}`,
+                    message: `Hey! Join my group "${group?.name || 'SplitX'}" on SplitX to split expenses: ${response.inviteLink}`,
                   });
                 },
               },
@@ -418,13 +697,35 @@ export default function GroupDetailsScreen() {
           const responseData = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300) {
             if (responseData.success && responseData.data) {
-              const { merchant, amount, date, category, receiptUrl: parsedUrl } = responseData.data;
+              const { merchant, amount, date, category, items, receiptUrl: parsedUrl } = responseData.data;
               if (merchant) setDescription(merchant);
               if (amount) setAmount(amount.toString());
               if (date) setExpenseDate(date);
               if (category) setExpenseCategory(category);
               if (parsedUrl) setReceiptUrl(parsedUrl);
-              Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
+
+              if (Array.isArray(items) && items.length > 0) {
+                setParsedItems(items);
+                const defaultShares: Record<number, Record<string, number>> = {};
+                items.forEach((_, idx) => {
+                  const sharesObj: Record<string, number> = {};
+                  members.forEach((m) => {
+                    sharesObj[m.id] = 0;
+                  });
+                  defaultShares[idx] = sharesObj;
+                });
+                setItemShares(defaultShares);
+                setSplitEqually(false);
+                setSplitMode('ITEMS');
+                recalculateItemSplits(items, defaultShares, amount ? amount.toString() : '0');
+                Alert.alert('Scan Success', 'Receipt scanned! Itemized splitting mode active.');
+              } else {
+                setParsedItems([]);
+                setItemShares({});
+                setSplitEqually(true);
+                setSplitMode('EQUALLY');
+                Alert.alert('Scan Success', 'Receipt parsed successfully! Details pre-filled.');
+              }
             } else {
               Alert.alert('Scan Failed', 'Failed to parse receipt details.');
             }
@@ -450,6 +751,145 @@ export default function GroupDetailsScreen() {
       setScanning(false);
     }
   };
+  // Recalculate itemized split shares and set customSplits
+  const recalculateItemSplits = useCallback((
+    itemsList: Array<{ name: string; quantity: number; price: number }>,
+    sharesMap: Record<number, Record<string, number>>,
+    totalExpAmount: string
+  ) => {
+    const totalAmountNum = parseFloat(totalExpAmount) || 0;
+    if (totalAmountNum <= 0 || itemsList.length === 0) return;
+
+    const rawShares: Record<string, number> = {};
+    members.forEach((m) => {
+      rawShares[m.id] = 0;
+    });
+
+    itemsList.forEach((item, index) => {
+      const userShares = sharesMap[index] || {};
+      let totalSharesForItem = 0;
+      members.forEach((m) => {
+        totalSharesForItem += userShares[m.id] || 0;
+      });
+
+      if (totalSharesForItem > 0) {
+        members.forEach((m) => {
+          const userShareCount = userShares[m.id] || 0;
+          if (userShareCount > 0) {
+            const shareAmount = item.price * (userShareCount / totalSharesForItem);
+            rawShares[m.id] += shareAmount;
+          }
+        });
+      }
+    });
+
+    const subtotal = itemsList.reduce((acc, item) => acc + item.price, 0);
+    const factor = subtotal > 0 ? totalAmountNum / subtotal : 1;
+
+    const newCustomSplits: Record<string, string> = {};
+    let runningSum = 0;
+    const activeMembers = members.filter((m) => rawShares[m.id] > 0);
+
+    members.forEach((m) => {
+      const rawShare = rawShares[m.id] || 0;
+      if (rawShare > 0) {
+        const roundedShare = Math.round(rawShare * factor * 100) / 100;
+        newCustomSplits[m.id] = roundedShare.toString();
+        runningSum += roundedShare;
+      } else {
+        newCustomSplits[m.id] = '0';
+      }
+    });
+
+    const diff = totalAmountNum - runningSum;
+    if (Math.abs(diff) > 0.001 && activeMembers.length > 0) {
+      let maxMemberId = activeMembers[0].id;
+      let maxVal = parseFloat(newCustomSplits[maxMemberId]) || 0;
+      activeMembers.forEach((m) => {
+        const val = parseFloat(newCustomSplits[m.id]) || 0;
+        if (val > maxVal) {
+          maxVal = val;
+          maxMemberId = m.id;
+        }
+      });
+      const adjustedShare = parseFloat(newCustomSplits[maxMemberId]) + diff;
+      newCustomSplits[maxMemberId] = (Math.round(adjustedShare * 100) / 100).toString();
+    }
+
+    setCustomSplits(newCustomSplits);
+  }, [members]);
+
+  const toggleMemberForItem = useCallback((itemIndex: number, memberId: string) => {
+    setItemShares((prev) => {
+      const currentShares = prev[itemIndex] ? { ...prev[itemIndex] } : {};
+      const currentVal = currentShares[memberId] || 0;
+      if (currentVal > 0) {
+        currentShares[memberId] = 0;
+      } else {
+        const totalShares = members.reduce((sum, m) => sum + (currentShares[m.id] || 0), 0);
+        const itemQuantity = parsedItems[itemIndex]?.quantity || 1;
+        if (totalShares < itemQuantity) {
+          currentShares[memberId] = 1;
+        } else {
+          Alert.alert('Limit Reached', `You can only allocate up to ${itemQuantity} of this item.`);
+          return prev;
+        }
+      }
+      const updatedShares = { ...prev, [itemIndex]: currentShares };
+      recalculateItemSplits(parsedItems, updatedShares, amount);
+      return updatedShares;
+    });
+  }, [parsedItems, amount, recalculateItemSplits, members]);
+
+  const adjustMemberShare = useCallback((itemIndex: number, memberId: string, delta: number) => {
+    setItemShares((prev) => {
+      const currentShares = prev[itemIndex] ? { ...prev[itemIndex] } : {};
+      const currentVal = currentShares[memberId] || 0;
+      
+      if (delta > 0) {
+        const totalShares = members.reduce((sum, m) => sum + (currentShares[m.id] || 0), 0);
+        const itemQuantity = parsedItems[itemIndex]?.quantity || 1;
+        if (totalShares >= itemQuantity) {
+          Alert.alert('Limit Reached', `You can only allocate up to ${itemQuantity} of this item.`);
+          return prev;
+        }
+      }
+      
+      const newVal = Math.max(0, currentVal + delta);
+      currentShares[memberId] = newVal;
+      const updatedShares = { ...prev, [itemIndex]: currentShares };
+      recalculateItemSplits(parsedItems, updatedShares, amount);
+      return updatedShares;
+    });
+  }, [parsedItems, amount, recalculateItemSplits, members]);
+
+  const toggleAllMembersForItem = useCallback((itemIndex: number) => {
+    setItemShares((prev) => {
+      const currentShares = prev[itemIndex] || {};
+      let hasAnyActive = false;
+      members.forEach((m) => {
+        if ((currentShares[m.id] || 0) > 0) {
+          hasAnyActive = true;
+        }
+      });
+
+      const nextShares: Record<string, number> = {};
+      if (hasAnyActive) {
+        members.forEach((m) => {
+          nextShares[m.id] = 0;
+        });
+      } else {
+        members.forEach((m) => {
+          nextShares[m.id] = 1;
+        });
+      }
+
+      const nextSharesMap = { ...prev, [itemIndex]: nextShares };
+      recalculateItemSplits(parsedItems, nextSharesMap, amount);
+      return nextSharesMap;
+    });
+  }, [members, parsedItems, amount, recalculateItemSplits]);
+
   // Handle Add Expense
   const resetExpenseModal = () => {
     setDescription('');
@@ -460,6 +900,9 @@ export default function GroupDetailsScreen() {
     setExpenseCategory('Food');
     setExpenseDate(new Date().toISOString().split('T')[0]);
     setSplitEqually(true);
+    setSplitMode('EQUALLY');
+    setParsedItems([]);
+    setItemShares({});
     setEditingExpense(null);
     setExpenseModalVisible(false);
   };
@@ -480,7 +923,7 @@ export default function GroupDetailsScreen() {
     try {
       let splits: Array<{ userId: string; amount: number }> = [];
 
-      if (splitEqually) {
+      if (splitMode === 'EQUALLY') {
         const count = members.length;
         const equalShare = Math.round((parsedAmount / count) * 100) / 100;
         let sum = 0;
@@ -505,6 +948,15 @@ export default function GroupDetailsScreen() {
         }
       }
 
+      let itemsPayload: string | null = null;
+      if (splitMode === 'ITEMS') {
+        const itemsWithShares = parsedItems.map((item, idx) => ({
+          ...item,
+          shares: itemShares[idx] || {}
+        }));
+        itemsPayload = JSON.stringify(itemsWithShares);
+      }
+
       const isEditing = editingExpense !== null;
       const url = isEditing
         ? `/api/groups/${groupId}/expenses/${editingExpense!.id}`
@@ -520,6 +972,7 @@ export default function GroupDetailsScreen() {
         category: expenseCategory,
         status: 'OPTIMISTIC',
         receiptUrl: receiptUrl ?? null,
+        items: itemsPayload,
         paidById: paidById,
         paidBy: { id: paidById, name: members.find(m => m.id === paidById)?.name || 'You' },
         splits: splits.map(s => ({ id: '', expenseId: isEditing ? editingExpense!.id : tempId, userId: s.userId, amount: s.amount, user: { id: s.userId, name: members.find(m => m.id === s.userId)?.name || '' } })),
@@ -541,6 +994,7 @@ export default function GroupDetailsScreen() {
           category: expenseCategory,
           date: expenseDate,
           receiptUrl,
+          items: itemsPayload,
         },
       });
 
@@ -566,11 +1020,62 @@ export default function GroupDetailsScreen() {
     setExpenseCategory(exp.category || 'Food');
     setExpenseDate(new Date(exp.date).toISOString().split('T')[0]);
     setReceiptUrl(exp.receiptUrl ?? null);
-    // Pre-fill custom splits
-    const splitMap: Record<string, string> = {};
-    exp.splits.forEach((s: any) => { splitMap[s.userId] = s.amount.toString(); });
-    setCustomSplits(splitMap);
-    setSplitEqually(false);
+    if (exp.items) {
+      try {
+        const savedItems = JSON.parse(exp.items);
+        if (Array.isArray(savedItems) && savedItems.length > 0) {
+          setParsedItems(savedItems.map((item: any) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price
+          })));
+
+          const loadedShares: Record<number, Record<string, number>> = {};
+          savedItems.forEach((item: any, idx: number) => {
+            if (item.shares) {
+              loadedShares[idx] = item.shares;
+            } else if (Array.isArray(item.sharedWith)) {
+              const sharesObj: Record<string, number> = {};
+              item.sharedWith.forEach((uid: string) => {
+                sharesObj[uid] = 1;
+              });
+              loadedShares[idx] = sharesObj;
+            } else {
+              loadedShares[idx] = {};
+            }
+          });
+          setItemShares(loadedShares);
+          setSplitEqually(false);
+          setSplitMode('ITEMS');
+          recalculateItemSplits(savedItems, loadedShares, exp.amount.toString());
+        } else {
+          setParsedItems([]);
+          setItemShares({});
+          setSplitEqually(false);
+          setSplitMode('CUSTOM');
+          const splitMap: Record<string, string> = {};
+          exp.splits.forEach((s: any) => { splitMap[s.userId] = s.amount.toString(); });
+          setCustomSplits(splitMap);
+        }
+      } catch (err) {
+        console.error('Failed to parse saved expense items:', err);
+        setParsedItems([]);
+        setItemShares({});
+        setSplitEqually(false);
+        setSplitMode('CUSTOM');
+        const splitMap: Record<string, string> = {};
+        exp.splits.forEach((s: any) => { splitMap[s.userId] = s.amount.toString(); });
+        setCustomSplits(splitMap);
+      }
+    } else {
+      setParsedItems([]);
+      setItemShares({});
+      setSplitMode('CUSTOM');
+      setSplitEqually(false);
+      const splitMap: Record<string, string> = {};
+      exp.splits.forEach((s: any) => { splitMap[s.userId] = s.amount.toString(); });
+      setCustomSplits(splitMap);
+    }
     setExpenseModalVisible(true);
   };
 
@@ -602,10 +1107,74 @@ export default function GroupDetailsScreen() {
 
   const handleSendReminder = async (debt: SimplifiedDebt) => {
     try {
-      const message = `Hi ${debt.fromName}! Just a friendly reminder that you owe ₹${debt.amount} to ${debt.toName} in our Split Group "${group?.name || 'Splikaro'}". You can settle this directly in the app!`;
+      const message = `Hi ${debt.fromName}! Just a friendly reminder that you owe ₹${debt.amount} to ${debt.toName} in our Split Group "${group?.name || 'SplitX'}". You can settle this directly in the app!`;
       await Share.share({ message });
     } catch (err: any) {
       console.error('Failed to send reminder:', err);
+    }
+  };
+
+  const handleRazorpayPayment = async () => {
+    if (!selectedDebt) return;
+    setSubmittingSettle(true);
+    try {
+      const response = await apiRequest(`/api/groups/${groupId}/settlement/pay`, {
+        method: 'POST',
+        body: {
+          amount: selectedDebt.amount,
+          toUserId: selectedDebt.to
+        }
+      });
+      if (response && response.paymentUrl) {
+        setSettleModalVisible(false);
+        
+        // Track the current list of expenses before payment
+        const previousExpenses = [...expenses];
+
+        // Opens the checkout overlay inside the app itself!
+        await WebBrowser.openBrowserAsync(response.paymentUrl);
+        
+        // Query fresh group details directly to verify payment success (using a retry loop to handle transient network drops)
+        let retries = 3;
+        let success = false;
+        while (retries > 0 && !success) {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const freshData = await apiRequest(`/api/groups/${groupId}`);
+            if (freshData) {
+              setGroup(freshData.group);
+              setMembers(freshData.members);
+              setExpenses(freshData.expenses);
+              setDebts(freshData.simplifiedDebts);
+
+              // If there's a new settled expense that wasn't in previousExpenses, trigger confetti!
+              const hasNewSettlement = freshData.expenses.some((e: any) => {
+                const isNew = !previousExpenses.some(pe => pe.id === e.id);
+                const isSettlement = e.description.startsWith('Settlement:');
+                return isNew && isSettlement;
+              });
+
+              if (hasNewSettlement) {
+                setShowConfetti(true);
+                setTimeout(() => {
+                  setShowConfetti(false);
+                }, 4500);
+              }
+              success = true;
+            }
+          } catch (fetchErr) {
+            retries--;
+            console.warn(`Failed to sync details, retries remaining: ${retries}`, fetchErr);
+            if (retries === 0) {
+              Alert.alert('Sync Connection Lost', 'Could not auto-sync the latest balances. Please pull down to refresh manually.');
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Payment Initialization Failed', err.message || 'Error communicating with server');
+    } finally {
+      setSubmittingSettle(false);
     }
   };
 
@@ -716,6 +1285,12 @@ export default function GroupDetailsScreen() {
         setSettleModalVisible(false);
         setSelectedDebt(null);
         fetchGroupDetails(false);
+        
+        // Trigger Confetti Celebration!
+        setShowConfetti(true);
+        setTimeout(() => {
+          setShowConfetti(false);
+        }, 4500);
       } else {
         setIsProcessingPayment(false);
         Alert.alert('Settle Failed', 'Could not record settlement');
@@ -958,6 +1533,11 @@ export default function GroupDetailsScreen() {
               <View style={[styles.expenseCard, { backgroundColor: theme.surface, opacity: exp.status === 'OPTIMISTIC' ? 0.6 : 1 }]}>
                 <TouchableOpacity
                   activeOpacity={0.95}
+                  onPress={() => {
+                    if (isSettlement) return;
+                    setDetailExpense(exp);
+                    setDetailModalVisible(true);
+                  }}
                   onLongPress={() => {
                     if (!canModify || isSettlement) return;
                     Alert.alert(
@@ -1355,10 +1935,16 @@ export default function GroupDetailsScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback onPress={() => {}}>
-                <ThemedView style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity
+              activeOpacity={1}
+              style={StyleSheet.absoluteFill}
+              onPress={() => {
+                Keyboard.dismiss();
+                setExpenseModalVisible(false);
+              }}
+            />
+            <ThemedView style={[styles.modalContent, { backgroundColor: theme.background }]}>
                   <View style={styles.modalHeader}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                       <ThemedText type="subtitle" style={styles.modalTitle}>
@@ -1509,7 +2095,13 @@ export default function GroupDetailsScreen() {
                   <TextInput
                     style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
                     value={amount}
-                    onChangeText={setAmount}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/[^0-9.]/g, '');
+                      setAmount(cleaned);
+                      if (splitMode === 'ITEMS') {
+                        recalculateItemSplits(parsedItems, itemShares, cleaned);
+                      }
+                    }}
                     keyboardType="numeric"
                     placeholder="e.g. 1500"
                     placeholderTextColor={theme.text3}
@@ -1596,25 +2188,90 @@ export default function GroupDetailsScreen() {
                 {/* Split selection toggle */}
                 <View style={styles.splitToggleContainer}>
                   <TouchableOpacity
-                    style={[styles.toggleBtn, splitEqually && { backgroundColor: theme.surface2 }]}
-                    onPress={() => setSplitEqually(true)}
+                    style={[styles.toggleBtn, splitMode === 'EQUALLY' && { backgroundColor: theme.surface2 }]}
+                    onPress={() => {
+                      setSplitMode('EQUALLY');
+                      setSplitEqually(true);
+                    }}
                   >
-                    <Text style={[styles.toggleBtnText, { color: splitEqually ? theme.primary : theme.text3 }]}>
+                    <Text style={[styles.toggleBtnText, { color: splitMode === 'EQUALLY' ? theme.primary : theme.text3 }]}>
                       Split Equally
                     </Text>
                   </TouchableOpacity>
+
+                  {parsedItems.length > 0 && (
+                    <TouchableOpacity
+                      style={[styles.toggleBtn, splitMode === 'ITEMS' && { backgroundColor: theme.surface2 }]}
+                      onPress={() => {
+                        setSplitMode('ITEMS');
+                        setSplitEqually(false);
+                        recalculateItemSplits(parsedItems, itemShares, amount);
+                      }}
+                    >
+                      <Text style={[styles.toggleBtnText, { color: splitMode === 'ITEMS' ? theme.primary : theme.text3 }]}>
+                        Split by Items
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity
-                    style={[styles.toggleBtn, !splitEqually && { backgroundColor: theme.surface2 }]}
-                    onPress={() => setSplitEqually(false)}
+                    style={[styles.toggleBtn, splitMode === 'CUSTOM' && { backgroundColor: theme.surface2 }]}
+                    onPress={() => {
+                      setSplitMode('CUSTOM');
+                      setSplitEqually(false);
+                    }}
                   >
-                    <Text style={[styles.toggleBtnText, { color: !splitEqually ? theme.primary : theme.text3 }]}>
+                    <Text style={[styles.toggleBtnText, { color: splitMode === 'CUSTOM' ? theme.primary : theme.text3 }]}>
                       Custom Splits
                     </Text>
                   </TouchableOpacity>
                 </View>
 
+                {/* Itemized Split Inputs */}
+                {splitMode === 'ITEMS' && parsedItems.length > 0 && (
+                  <View style={styles.itemizedSplitsContainer}>
+                    <Text style={[styles.itemizedHeader, { color: theme.text }]}>Allocated Items</Text>
+                    <Text style={[styles.itemizedSubtitle, { color: theme.text3 }]}>
+                      Click members to allocate items. Any tax/tip will be split proportionally.
+                    </Text>
+                    {parsedItems.map((item, itemIdx) => (
+                      <ItemCard
+                        key={itemIdx}
+                        item={item}
+                        itemIdx={itemIdx}
+                        shares={itemShares[itemIdx] || {}}
+                        members={members}
+                        currentUser={currentUser}
+                        theme={theme}
+                        onToggleMember={toggleMemberForItem}
+                        onAdjustMemberShare={adjustMemberShare}
+                        onToggleAll={toggleAllMembersForItem}
+                      />
+                    ))}
+
+                    {/* Proportional Split Result Summary */}
+                    <View style={[styles.summaryContainer, { backgroundColor: theme.surface2 }]}>
+                      <Text style={[styles.summaryTitle, { color: theme.text }]}>Splits Summary</Text>
+                      {members.map((m) => {
+                        const amt = customSplits[m.id] || '0';
+                        if (parseFloat(amt) <= 0) return null;
+                        return (
+                          <View key={m.id} style={styles.summaryRow}>
+                            <Text style={[styles.summaryName, { color: theme.text }]}>
+                              {m.id === currentUser?.id ? 'You' : m.name}
+                            </Text>
+                            <Text style={[styles.summaryAmount, { color: theme.text, fontFamily: Typography.uiBold }]}>
+                              ₹{parseFloat(amt).toFixed(2)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
                 {/* Custom Split Inputs */}
-                {!splitEqually && (
+                {!splitEqually && splitMode === 'CUSTOM' && (
                   <View style={styles.customSplitsContainer}>
                     {members.map((m) => (
                       <View key={m.id} style={styles.customSplitRow}>
@@ -1625,7 +2282,6 @@ export default function GroupDetailsScreen() {
                           style={[styles.customSplitInput, { color: theme.text, borderColor: theme.border }]}
                           value={customSplits[m.id] || ''}
                           onChangeText={(text) => {
-                            // Strip any characters that are NOT digits or dot
                             const cleaned = text.replace(/[^0-9.]/g, '');
                             setCustomSplits((prev) => ({ ...prev, [m.id]: cleaned }));
                           }}
@@ -1651,10 +2307,8 @@ export default function GroupDetailsScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </ThemedView>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+          </View>
+        </KeyboardAvoidingView>
   </Modal>
       {/* Add Member Modal */}
       <Modal
@@ -1805,6 +2459,263 @@ export default function GroupDetailsScreen() {
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   </Modal>
+      {/* Expense Details Summary Modal */}
+      <Modal
+        visible={detailModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setDetailModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity
+              activeOpacity={1}
+              style={StyleSheet.absoluteFill}
+              onPress={() => setDetailModalVisible(false)}
+            />
+            <ThemedView style={[styles.modalContent, { backgroundColor: theme.background }]}>
+              {detailExpense && (() => {
+                const isCreator = detailExpense.paidById === currentUser?.id || 
+                  members.find(m => m.id === currentUser?.id)?.role === 'ADMIN';
+                const formattedDate = new Date(detailExpense.date).toLocaleDateString('en-IN', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric'
+                });
+                
+                let parsedReceiptItems: any[] = [];
+                if (detailExpense.items) {
+                  try {
+                    parsedReceiptItems = JSON.parse(detailExpense.items);
+                  } catch (e) {
+                    console.warn(e);
+                  }
+                }
+
+                return (
+                  <View style={{ maxHeight: '100%' }}>
+                    <View style={styles.modalHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <ThemedText type="subtitle" style={styles.modalTitle}>
+                          Expense Summary
+                        </ThemedText>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.closeBtn}
+                        onPress={() => setDetailModalVisible(false)}
+                      >
+                        <X size={20} color={theme.text} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+                      {/* Main Header Info Card */}
+                      <View style={[styles.detailHeaderCard, { backgroundColor: theme.surface2 }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                          <View style={[styles.detailCategoryCircle, { backgroundColor: theme.primaryDim }]}>
+                            {(() => {
+                              const IconComp = getCategoryIconAndColor(detailExpense.description).icon;
+                              return <IconComp size={24} color={theme.primary} />;
+                            })()}
+                          </View>
+                          <View style={{ flex: 1, marginLeft: 12 }}>
+                            <Text style={[styles.detailDescText, { color: theme.text }]} numberOfLines={2}>
+                              {detailExpense.description}
+                            </Text>
+                            <Text style={[styles.detailDateText, { color: theme.text3 }]}>
+                              {formattedDate}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={{ borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 12 }}>
+                          <Text style={[styles.detailPaidLabel, { color: theme.text2 }]}>
+                            Paid by <Text style={{ fontFamily: Typography.uiBold }}>{detailExpense.paidById === currentUser?.id ? 'You' : detailExpense.paidBy?.name}</Text>
+                          </Text>
+                          <Text style={[styles.detailAmountText, { color: theme.primary }]}>
+                            ₹{detailExpense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Split Breakdown Section */}
+                      <View style={styles.detailSection}>
+                        <Text style={[styles.detailSectionTitle, { color: theme.text }]}>How it's Split</Text>
+                        <View style={[styles.detailBreakdownList, { borderColor: theme.border }]}>
+                          {members.map((m, idx) => {
+                            const split = detailExpense.splits?.find((s: any) => s.userId === m.id);
+                            const amountOwed = split ? split.amount : 0;
+                            const didPay = detailExpense.paidById === m.id;
+                            
+                            // Net balance math
+                            let netBalance = 0;
+                            if (didPay) {
+                              netBalance = detailExpense.amount - amountOwed;
+                            } else if (split) {
+                              netBalance = -amountOwed;
+                            }
+
+                            return (
+                              <View 
+                                key={m.id} 
+                                style={[
+                                  styles.detailBreakdownRow, 
+                                  { 
+                                    borderBottomWidth: idx === members.length - 1 ? 0 : 1,
+                                    borderBottomColor: theme.border 
+                                  }
+                                ]}
+                              >
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <View style={[styles.detailAvatarIcon, { backgroundColor: theme.border }]}>
+                                    <Text style={{ fontSize: 10, fontWeight: 'bold', color: theme.text2 }}>
+                                      {m.name.charAt(0).toUpperCase()}
+                                    </Text>
+                                  </View>
+                                  <View style={{ marginLeft: 8 }}>
+                                    <Text style={[styles.detailMemberName, { color: theme.text }]}>
+                                      {m.id === currentUser?.id ? 'You' : m.name}
+                                    </Text>
+                                    <Text style={[styles.detailMemberSub, { color: theme.text3 }]}>
+                                      {didPay ? `Paid ₹${detailExpense.amount.toFixed(0)}` : 'Owes split'}
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                <View style={{ alignItems: 'flex-end' }}>
+                                  <Text style={[styles.detailMemberAmount, { color: theme.text }]}>
+                                    ₹{amountOwed.toFixed(2)}
+                                  </Text>
+                                  {netBalance !== 0 && (
+                                    <Text style={{ 
+                                      fontSize: 10, 
+                                      color: netBalance > 0 ? theme.lent : theme.owe,
+                                      fontWeight: '600'
+                                    }}>
+                                      {netBalance > 0 ? `gets back ₹${netBalance.toFixed(2)}` : `owes ₹${Math.abs(netBalance).toFixed(2)}`}
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {/* Items Breakdown list if itemized splits exist */}
+                      {parsedReceiptItems.length > 0 && (
+                        <View style={styles.detailSection}>
+                          <Text style={[styles.detailSectionTitle, { color: theme.text }]}>Receipt Items Breakdown</Text>
+                          {parsedReceiptItems.map((item: any, idx: number) => {
+                            let itemTotalShares = 0;
+                            const itemUserShares = item.shares || {};
+                            members.forEach(m => {
+                              itemTotalShares += itemUserShares[m.id] || 0;
+                            });
+
+                            return (
+                              <View key={idx} style={[styles.detailItemRow, { backgroundColor: theme.surface2, borderColor: theme.border }]}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                  <Text style={[styles.detailItemName, { color: theme.text }]}>{item.name}</Text>
+                                  <Text style={[styles.detailItemPrice, { color: theme.primary }]}>₹{item.price.toFixed(2)}</Text>
+                                </View>
+                                <Text style={{ fontSize: 10, color: theme.text3, marginBottom: 6 }}>
+                                  Qty: {item.quantity} • ₹{(item.price / item.quantity).toFixed(2)} each
+                                </Text>
+
+                                {/* Shared with details */}
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 6 }}>
+                                  {members.map(m => {
+                                    const shareCount = itemUserShares[m.id] || 0;
+                                    if (shareCount === 0) return null;
+                                    const memberCost = itemTotalShares > 0 ? (item.price * (shareCount / itemTotalShares)) : 0;
+                                    return (
+                                      <View key={m.id} style={[styles.detailItemShareTag, { backgroundColor: theme.background }]}>
+                                        <Text style={{ fontSize: 9, color: theme.text, fontWeight: '500' }}>
+                                          {m.id === currentUser?.id ? 'You' : m.name.split(' ')[0]}: {shareCount} share{shareCount > 1 ? 's' : ''} (₹{memberCost.toFixed(0)})
+                                        </Text>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+
+                      {/* Receipt Photo Section */}
+                      {detailExpense.receiptUrl && (
+                        <View style={styles.detailSection}>
+                          <Text style={[styles.detailSectionTitle, { color: theme.text }]}>Receipt Photo</Text>
+                          <TouchableOpacity 
+                            style={styles.detailReceiptBtn}
+                            onPress={() => Linking.openURL(detailExpense.receiptUrl!)}
+                          >
+                            <Image 
+                              source={{ uri: detailExpense.receiptUrl }} 
+                              style={[styles.detailReceiptThumbnail, { borderColor: theme.border }]} 
+                              resizeMode="cover"
+                            />
+                            <View style={styles.detailReceiptOverlay}>
+                              <Camera size={20} color="#FFF" />
+                              <Text style={styles.detailReceiptOverlayText}>Tap to view receipt full screen</Text>
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Action Triggers */}
+                      {isCreator && (
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+                          <TouchableOpacity
+                            style={[styles.detailEditBtn, { borderColor: theme.primary, flexDirection: 'row', gap: 6 }]}
+                            onPress={() => {
+                              setDetailModalVisible(false);
+                              handleEditExpense(detailExpense);
+                            }}
+                          >
+                            <Edit2 size={14} color={theme.primary} />
+                            <Text style={[styles.detailEditBtnText, { color: theme.primary }]}>Edit Split</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.detailDeleteBtn, { backgroundColor: theme.owe, flexDirection: 'row', gap: 6 }]}
+                            onPress={() => {
+                              Alert.alert(
+                                'Delete Expense',
+                                'Are you sure you want to delete this expense? This cannot be undone.',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { 
+                                    text: 'Delete', 
+                                    style: 'destructive', 
+                                    onPress: async () => {
+                                      setDetailModalVisible(false);
+                                      await handleDeleteExpense(detailExpense);
+                                    }
+                                  }
+                                ]
+                              );
+                            }}
+                          >
+                            <Trash2 size={14} color="#FFF" />
+                            <Text style={styles.detailDeleteBtnText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </ScrollView>
+                  </View>
+                );
+              })()}
+            </ThemedView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Settle Up Debt Confirmation Modal */}
       <Modal
         visible={settleModalVisible}
@@ -1872,49 +2783,69 @@ export default function GroupDetailsScreen() {
                     </View>
                   )}
 
-                  <View style={styles.settleModalActions}>
+                  <View style={{ gap: 10 }}>
                     <TouchableOpacity
-                      style={[styles.settleCancelBtn, { borderColor: theme.border }]}
-                      onPress={() => {
-                        setInputUpi('');
-                        setSettleModalVisible(false);
+                      style={{
+                        backgroundColor: '#3399cc',
+                        height: 44,
+                        borderRadius: 10,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        gap: 6
                       }}
+                      onPress={handleRazorpayPayment}
+                      disabled={submittingSettle}
                     >
-                      <Text style={[styles.settleCancelBtnText, { color: theme.textSecondary }]}>Cancel</Text>
+                      <CreditCard size={14} color="#FFF" />
+                      <Text style={{ color: '#FFF', fontSize: 13, fontWeight: 'bold' }}>
+                        Pay via Razorpay (Demo Sandbox)
+                      </Text>
                     </TouchableOpacity>
-                    
-                    {payeeUpi ? (
+
+                    <View style={styles.settleModalActions}>
                       <TouchableOpacity
-                        style={[styles.settleConfirmBtn, { backgroundColor: theme.primary, flex: 0.6 }]}
-                        onPress={() => handleUPIPayment()}
-                        disabled={submittingSettle}
+                        style={[styles.settleCancelBtn, { borderColor: theme.border }]}
+                        onPress={() => {
+                          setInputUpi('');
+                          setSettleModalVisible(false);
+                        }}
                       >
-                        <Text style={styles.settleConfirmBtnText}>Pay via UPI App</Text>
+                        <Text style={[styles.settleCancelBtnText, { color: theme.textSecondary }]}>Cancel</Text>
                       </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={[
-                          styles.settleConfirmBtn, 
-                          { 
-                            backgroundColor: inputUpi.trim() ? theme.primary : theme.surface2, 
-                            flex: 0.6 
-                          }
-                        ]}
-                        onPress={handleSaveUpiAndPay}
-                        disabled={submittingUpi || !inputUpi.trim()}
-                      >
-                        {submittingUpi ? (
-                          <ActivityIndicator size="small" color="#FFF" />
-                        ) : (
-                          <Text style={[
-                            styles.settleConfirmBtnText, 
-                            { color: inputUpi.trim() ? '#FFF' : theme.text3 }
-                          ]}>
-                            Save & Pay via UPI
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                    )}
+                      
+                      {payeeUpi ? (
+                        <TouchableOpacity
+                          style={[styles.settleConfirmBtn, { backgroundColor: theme.primary }]}
+                          onPress={() => handleUPIPayment()}
+                          disabled={submittingSettle}
+                        >
+                          <Text style={styles.settleConfirmBtnText}>Pay via UPI App</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={[
+                            styles.settleConfirmBtn, 
+                            { 
+                              backgroundColor: inputUpi.trim() ? theme.primary : theme.surface2 
+                            }
+                          ]}
+                          onPress={handleSaveUpiAndPay}
+                          disabled={submittingUpi || !inputUpi.trim()}
+                        >
+                          {submittingUpi ? (
+                            <ActivityIndicator size="small" color="#FFF" />
+                          ) : (
+                            <Text style={[
+                              styles.settleConfirmBtnText, 
+                              { color: inputUpi.trim() ? '#FFF' : theme.text3 }
+                            ]}>
+                              Save & Pay via UPI
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                   <TouchableOpacity
                     style={{ marginTop: 14, alignSelf: 'center', padding: 4 }}
@@ -2153,6 +3084,7 @@ export default function GroupDetailsScreen() {
           )}
         </View>
       </Modal>
+      <ConfettiCannon active={showConfetti} />
     </ThemedView>
   );
 }
@@ -2492,6 +3424,287 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  detailHeaderCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  detailCategoryCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailDescText: {
+    fontSize: 16,
+    fontFamily: Typography.uiBold,
+  },
+  detailDateText: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  detailPaidLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  detailAmountText: {
+    fontSize: 24,
+    fontFamily: Typography.uiBold,
+  },
+  detailSection: {
+    marginBottom: 20,
+  },
+  detailSectionTitle: {
+    fontSize: 14,
+    fontFamily: Typography.uiBold,
+    marginBottom: 8,
+  },
+  detailBreakdownList: {
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  detailBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+  },
+  detailAvatarIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailMemberName: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  detailMemberSub: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  detailMemberAmount: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  detailItemRow: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  detailItemName: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  detailItemPrice: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  detailItemShareTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  detailReceiptBtn: {
+    position: 'relative',
+    height: 120,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  detailReceiptThumbnail: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 1,
+  },
+  detailReceiptOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailReceiptOverlayText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  detailEditBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailEditBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  detailDeleteBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailDeleteBtnText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  itemizedSplitsContainer: {
+    marginBottom: Spacing.three,
+  },
+  itemizedHeader: {
+    fontSize: 14,
+    fontFamily: Typography.uiBold,
+    marginBottom: 4,
+  },
+  itemizedSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: Spacing.three,
+  },
+  itemCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginBottom: Spacing.two,
+  },
+  itemCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  itemNameText: {
+    fontSize: 14,
+    fontFamily: Typography.uiBold,
+  },
+  itemPriceLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  itemPriceText: {
+    fontSize: 14,
+    fontFamily: Typography.uiBold,
+  },
+  itemToggleAllBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  itemToggleAllText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  itemMembersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 6,
+  },
+  itemMemberColumn: {
+    alignItems: 'center',
+    marginBottom: 10,
+    width: 76,
+  },
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 4,
+    width: 70,
+    height: 24,
+    paddingHorizontal: 2,
+  },
+  counterBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  counterValText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  allocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  allocationBadgeText: {
+    fontSize: 10,
+  },
+  memberCostText: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  itemMemberAvatarContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 12,
+    padding: 6,
+    width: 70,
+  },
+  itemAvatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  itemAvatarText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  itemMemberNameText: {
+    fontSize: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+    width: 60,
+  },
+  summaryContainer: {
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginTop: Spacing.two,
+  },
+  summaryTitle: {
+    fontSize: 13,
+    fontFamily: Typography.uiBold,
+    marginBottom: Spacing.two,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  summaryName: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  summaryAmount: {
+    fontSize: 12,
   },
   settleModalBox: {
     borderRadius: 20,
