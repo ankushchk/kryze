@@ -2,21 +2,15 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
-import twilio from "twilio";
 import { prisma } from "../config/dbConnect.js";
+import { getTwilioClient } from "../config/twilio.js";
 import { AuthRequest } from "../middleware/auth.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "secret-splitx-token-key-change-this-in-production";
 const googleClient = new OAuth2Client();
 
-const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-
-let twilioClient: any = null;
-if (twilioAccountSid && twilioAuthToken) {
-  twilioClient = twilio(twilioAccountSid, twilioAuthToken);
-}
+const twilioClient = getTwilioClient();
 
 export function normalizePhoneNumber(phone: string): string {
   let cleaned = phone.replace(/[\s\-\(\)]/g, "");
