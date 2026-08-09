@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { prisma } from "../config/dbConnect.js";
 import { AuthRequest } from "../middleware/auth.js";
 import { normalizePhoneNumber } from "./auth.js";
+import { awardCoins } from "./coins.js";
 import twilio from "twilio";
 
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -217,7 +218,7 @@ export const addGroupMember = async (req: AuthRequest, res: Response): Promise<v
       },
     });
 
-    const inviteLink = `${process.env.FRONTEND_URL || "http://192.168.1.4:8081"}/group-details?id=${groupId}`;
+    const inviteLink = `${process.env.FRONTEND_URL || "http://192.168.1.3:8081"}/group-details?id=${groupId}`;
 
     if (!targetUser) {
       const isEmail = cleaned.includes("@");
@@ -960,7 +961,7 @@ export const createSettlementPaymentLink = async (req: AuthRequest, res: Respons
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     const description = `Settlement: ${fromUser.name || "User"} to ${toUser.name || "User"}`;
-    const apiHost = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.11:3000";
+    const apiHost = process.env.EXPO_PUBLIC_API_URL || process.env.API_URL || process.env.BACKEND_URL || "http://192.168.1.3:3000";
 
     if (keyId && keySecret) {
       // Direct integration with real Razorpay Checkout API
@@ -1178,31 +1179,56 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
     const toUser = await prisma.user.findUnique({ where: { id: toUserId } });
 
     if (!fromUser || !toUser) {
-      res.status(404).send("User records not found");
+      res.status(404).json({ error: "User records not found" });
       return;
     }
 
     const description = `Settlement: ${fromUser.name || "User"} to ${toUser.name || "User"}`;
     const amountVal = parseFloat(amount);
 
-    // Save settled transaction in DB
-    await prisma.expense.create({
-      data: {
+    // Coins are deterministic: 1 coin per ₹100 settled (minimum 1 coin per settlement)
+    const projectedCoins = Math.max(1, Math.floor(amountVal / 100));
+
+    // Idempotency guard: if a settlement for this payer/amount was already recorded
+    // recently (e.g. the in-browser callback and the app both calling), don't create a
+    // duplicate expense nor award duplicate coins — just report the earned total.
+    const recentSettlement = await prisma.expense.findFirst({
+      where: {
         groupId,
-        description,
-        amount: amountVal,
         paidById: fromUserId,
-        status: "APPROVED",
-        splits: {
-          create: [
-            {
-              userId: toUserId,
-              amount: amountVal
-            }
-          ]
-        }
-      }
+        amount: amountVal,
+        description: { startsWith: "Settlement:" },
+        createdAt: { gte: new Date(Date.now() - 2 * 60 * 1000) },
+      },
     });
+
+    let coinsEarned = projectedCoins;
+    if (!recentSettlement) {
+      // Save settled transaction in DB
+      const newSettlement = await prisma.expense.create({
+        data: {
+          groupId,
+          description,
+          amount: amountVal,
+          paidById: fromUserId,
+          status: "APPROVED",
+          splits: {
+            create: [
+              {
+                userId: toUserId,
+                amount: amountVal
+              }
+            ]
+          }
+        }
+      });
+
+      // Award coins to payer for completing settlement
+      const awarded = await awardCoins(fromUserId, amountVal, newSettlement.id);
+      if (awarded > 0) {
+        coinsEarned = awarded;
+      }
+    }
 
     const html = `
       <!DOCTYPE html>
@@ -1218,7 +1244,7 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
               flex-direction: column;
               align-items: center;
               justify-content: center;
-              height: 100vh;
+              min-height: 100vh;
               margin: 0;
               color: #231f18;
               padding: 20px;
@@ -1256,13 +1282,26 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
               font-size: 14px;
               color: #7f8c8d;
               line-height: 1.5;
-              margin-bottom: 24px;
+              margin-bottom: 12px;
             }
             .amount {
               font-size: 28px;
               font-weight: bold;
               color: #2e7d32;
-              margin-bottom: 24px;
+              margin-bottom: 16px;
+            }
+            .coin-row {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              background: #fef3c7;
+              border: 1px solid #fde68a;
+              color: #92400e;
+              font-weight: bold;
+              font-size: 14px;
+              padding: 8px 16px;
+              border-radius: 999px;
+              margin-bottom: 16px;
             }
             .btn {
               background-color: #e6a23c;
@@ -1276,6 +1315,7 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
               cursor: pointer;
               display: inline-block;
               transition: background 0.2s;
+              margin-top: 8px;
             }
             .btn:hover {
               background-color: #d18d2c;
@@ -1288,7 +1328,8 @@ export const handleSettlementCallback = async (req: Request, res: Response): Pro
             <h1>Payment Successful</h1>
             <p>Your settlement payment of</p>
             <div class="amount">₹${amountVal.toFixed(2)}</div>
-            <p>has been logged in the group ledger.</p>
+            <div class="coin-chip">+${coinsEarned} Splitx Coin${coinsEarned === 1 ? "" : "s"} earned</div>
+            <p>has been logged in the group ledger. Tap Return to SplitX to see your splash.</p>
             <a href="frontendapp://group-details?id=${groupId}" class="btn">Return to SplitX</a>
           </div>
         </body>
