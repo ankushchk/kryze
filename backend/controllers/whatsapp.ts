@@ -276,6 +276,40 @@ async function formatReceiptReply(data: any): Promise<string> {
   return text;
 }
 
+// Save an OCR'd WhatsApp receipt as a PENDING draft so it shows up in the app inbox.
+async function saveReceiptDraft(userId: string, data: any): Promise<void> {
+  try {
+    const merchant = (data.merchant || "Unknown Merchant").trim();
+    const amount = typeof data.amount === "number" && !isNaN(data.amount) ? data.amount : 0;
+    const parsedDate = new Date(data.date);
+    const date = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+    const messageBody = `WhatsApp receipt from ${merchant}`;
+
+    await prisma.transactionDraft.upsert({
+      where: {
+        userId_sender_messageBody_date: {
+          userId,
+          sender: "WhatsApp",
+          messageBody,
+          date,
+        },
+      },
+      update: { merchant, amount, status: "PENDING" },
+      create: {
+        userId,
+        sender: "WhatsApp",
+        messageBody,
+        merchant,
+        amount,
+        date,
+        status: "PENDING",
+      },
+    });
+  } catch (error) {
+    console.error("Failed to save WhatsApp receipt draft:", error);
+  }
+}
+
 async function handleIncoming(payload: {
   from: string;
   body: string;
@@ -308,8 +342,13 @@ async function handleIncoming(payload: {
       const mime = payload.mediaTypes[0] || "image/jpeg";
       try {
         const data = await extractReceipt(buffer, mime);
+        await saveReceiptDraft(userId, data);
         const reply = await formatReceiptReply(data);
-        await sendWhatsAppMessage(payload.from, reply);
+        await sendWhatsAppMessage(
+          payload.from,
+          reply +
+            "\n\n✅ Saved to your Splitx inbox. Open the app and add it to a group to split it."
+        );
       } catch (error: any) {
         console.error("WhatsApp OCR error:", error);
         await sendWhatsAppMessage(
