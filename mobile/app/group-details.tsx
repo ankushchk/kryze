@@ -21,8 +21,7 @@ import {
   RefreshControl,
   TouchableWithoutFeedback,
   Keyboard,
-  useWindowDimensions,
-  Dimensions
+  useWindowDimensions
 } from 'react-native';
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -71,6 +70,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { Typography, Spacing } from '@/constants/theme';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
+import { ConfettiCannon } from '@/components/confetti-cannon';
+import { CoinSplashOverlay, CoinSplashData } from '@/components/coin-splash-overlay';
 
 type Member = {
   id: string;
@@ -321,100 +322,6 @@ const getCategoryIconAndColor = (description: string) => {
   return { icon: Package, label: 'Others', color: '#8E8E93' };
 };
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CONFETTI_COLORS = ['#E6A23C', '#2E7D32', '#3399cc', '#e74c3c', '#9b59b6', '#1abc9c'];
-
-const ConfettiCannon = ({ active }: { active: boolean }) => {
-  const [confettiItems] = React.useState(() =>
-    Array.from({ length: 65 }).map(() => {
-      return {
-        key: Math.random().toString(),
-        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
-        size: Math.random() * 6 + 6,
-        left: Math.random() * SCREEN_WIDTH,
-        yAnim: new Animated.Value(-20),
-        xAnim: new Animated.Value(0),
-        rotateAnim: new Animated.Value(0),
-      };
-    })
-  );
-
-  React.useEffect(() => {
-    if (active) {
-      const animations = confettiItems.map((item) => {
-        const duration = Math.random() * 2000 + 1500;
-        const delay = Math.random() * 500;
-        const targetX = (Math.random() - 0.5) * 120;
-        const targetRotate = Math.random() * 3 + 1;
-
-        return Animated.parallel([
-          Animated.timing(item.yAnim, {
-            toValue: SCREEN_HEIGHT + 20,
-            duration,
-            delay,
-            useNativeDriver: true,
-          }),
-          Animated.timing(item.xAnim, {
-            toValue: targetX,
-            duration,
-            delay,
-            useNativeDriver: true,
-          }),
-          Animated.timing(item.rotateAnim, {
-            toValue: targetRotate,
-            duration,
-            delay,
-            useNativeDriver: true,
-          }),
-        ]);
-      });
-
-      Animated.parallel(animations).start();
-    } else {
-      // Reset animations to top when inactive so it can play again
-      confettiItems.forEach(item => {
-        item.yAnim.setValue(-20);
-        item.xAnim.setValue(0);
-        item.rotateAnim.setValue(0);
-      });
-    }
-  }, [active]);
-
-  if (!active) return null;
-
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {confettiItems.map((item) => {
-        const rotateInterpolate = item.rotateAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['0deg', '360deg'],
-        });
-
-        return (
-          <Animated.View
-            key={item.key}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: item.left,
-              width: item.size,
-              height: item.size * (Math.random() > 0.5 ? 1.5 : 1),
-              borderRadius: Math.random() > 0.7 ? item.size : 2,
-              backgroundColor: item.color,
-              zIndex: 9999,
-              transform: [
-                { translateY: item.yAnim },
-                { translateX: item.xAnim },
-                { rotate: rotateInterpolate },
-              ],
-            }}
-          />
-        );
-      })}
-    </View>
-  );
-};
-
 export default function GroupDetailsScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -453,6 +360,7 @@ export default function GroupDetailsScreen() {
   const [detailExpense, setDetailExpense] = useState<GroupExpense | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [splashData, setSplashData] = useState<CoinSplashData | null>(null);
 
   // Add Member Modal States
   const [memberModalVisible, setMemberModalVisible] = useState(false);
@@ -1147,7 +1055,7 @@ export default function GroupDetailsScreen() {
               setExpenses(freshData.expenses);
               setDebts(freshData.simplifiedDebts);
 
-              // If there's a new settled expense that wasn't in previousExpenses, trigger confetti!
+              // If there's a new settled expense that wasn't in previousExpenses, celebrate!
               const hasNewSettlement = freshData.expenses.some((e: any) => {
                 const isNew = !previousExpenses.some(pe => pe.id === e.id);
                 const isSettlement = e.description.startsWith('Settlement:');
@@ -1155,10 +1063,42 @@ export default function GroupDetailsScreen() {
               });
 
               if (hasNewSettlement) {
-                setShowConfetti(true);
-                setTimeout(() => {
-                  setShowConfetti(false);
-                }, 4500);
+                // Read the coins this settlement awarded from the user's own coin
+                // ledger (latest SETTLEMENT credit), so the splash always shows
+                // the true, server-awarded amount.
+                let coinsEarned = Math.max(1, Math.floor(selectedDebt.amount / 100));
+                try {
+                  const hist = await apiRequest('/api/coins/history');
+                  const newestEarn = hist?.history?.find(
+                    (entry: any) => entry.reason === 'SETTLEMENT' && entry.amount > 0
+                  );
+                  if (newestEarn && newestEarn.amount) {
+                    coinsEarned = newestEarn.amount;
+                  }
+                } catch (histErr) {
+                  console.warn('Failed to read coins from ledger, using local calc', histErr);
+                }
+
+                // Pull the user's (fresh) coin balance from their profile data so the
+                // splash can show the updated total alongside what was just earned.
+                let totalBalance = coinsEarned;
+                try {
+                  const bal = await apiRequest('/api/coins/balance');
+                  totalBalance = (bal && bal.balance) || totalBalance;
+                } catch (balErr) {
+                  console.warn('Failed to fetch coin balance', balErr);
+                }
+
+                setSplashData((prev) =>
+                  prev
+                    ? prev
+                    : {
+                        coinsEarned,
+                        totalBalance,
+                        groupName: group?.name,
+                        settledWith: selectedDebt.toName,
+                      }
+                );
               }
               success = true;
             }
@@ -3085,6 +3025,9 @@ export default function GroupDetailsScreen() {
         </View>
       </Modal>
       <ConfettiCannon active={showConfetti} />
+      {splashData ? (
+        <CoinSplashOverlay data={splashData} onFinish={() => setSplashData(null)} />
+      ) : null}
     </ThemedView>
   );
 }
