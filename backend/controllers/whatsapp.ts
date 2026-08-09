@@ -256,7 +256,11 @@ function helpText(): string {
     "• /status — your group balances across all tabs",
     "• /help — show this message",
     "• /remind <name> — request a settle-up reminder huddle (coming soon)",
-    "You can also forward a receipt: send a photo of a bill and get an itemized split back.",
+    "",
+    "Send a receipt photo to:",
+    "1. Get an itemized split back",
+    "2. Pick a group to add it to (equal split)",
+    "3. It's saved to your app inbox either way",
   ].join("\n");
 }
 
@@ -277,7 +281,7 @@ async function formatReceiptReply(data: any): Promise<string> {
 }
 
 // Save an OCR'd WhatsApp receipt as a PENDING draft so it shows up in the app inbox.
-async function saveReceiptDraft(userId: string, data: any): Promise<void> {
+async function saveReceiptDraft(userId: string, data: any): Promise<string | null> {
   try {
     const merchant = (data.merchant || "Unknown Merchant").trim();
     const amount = typeof data.amount === "number" && !isNaN(data.amount) ? data.amount : 0;
@@ -285,7 +289,7 @@ async function saveReceiptDraft(userId: string, data: any): Promise<void> {
     const date = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
     const messageBody = `WhatsApp receipt from ${merchant}`;
 
-    await prisma.transactionDraft.upsert({
+    const draft = await prisma.transactionDraft.upsert({
       where: {
         userId_sender_messageBody_date: {
           userId,
@@ -305,9 +309,87 @@ async function saveReceiptDraft(userId: string, data: any): Promise<void> {
         status: "PENDING",
       },
     });
+    return draft.id;
   } catch (error) {
     console.error("Failed to save WhatsApp receipt draft:", error);
+    return null;
   }
+}
+
+// The user's groups (with member counts) for the "which group?" prompt.
+async function listUserGroups(userId: string) {
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId },
+    include: {
+      group: {
+        include: { members: { select: { userId: true } } },
+      },
+    },
+    orderBy: { joinedAt: "asc" },
+  });
+  return memberships;
+}
+
+function buildGroupPrompt(memberships: any[]): string {
+  if (memberships.length === 0) {
+    return "You're not in any group yet. Create a group in the app first, then send the receipt again.";
+  }
+  const lines = memberships.map((m, i) => `${i + 1}. ${m.group.name} (${m.group.members.length} members)`);
+  return lines.join("\n") + "\n\nReply with the number or name, or *cancel*.";
+}
+
+// Create an expense from a PENDING WhatsApp draft, split equally across the group.
+async function createReceiptExpense(
+  userId: string,
+  draftId: string,
+  group: any,
+  from: string
+): Promise<string> {
+  const draft = await prisma.transactionDraft.findUnique({ where: { id: draftId } });
+  if (!draft || draft.userId !== userId || draft.status !== "PENDING") {
+    return "That receipt is no longer pending. Please send the photo again.";
+  }
+
+  const members = await prisma.groupMember.findMany({
+    where: { groupId: group.id },
+    include: { user: { select: { id: true, name: true } } },
+  });
+
+  if (members.length === 0) {
+    return `Group "${group.name}" has no members to split with.`;
+  }
+
+  const amount = draft.amount || 0;
+  const base = Math.floor((amount / members.length) * 100) / 100;
+  const remainder = Math.round((amount - base * members.length) * 100) / 100;
+
+  const splits = members.map((m: any, i: number) => {
+    const amt = i === members.length - 1 ? base + remainder : base;
+    return { userId: m.user.id, amount: Math.round(amt * 100) / 100, name: m.user.name || "Unknown" };
+  });
+
+  await prisma.expense.create({
+    data: {
+      groupId: group.id,
+      paidById: userId,
+      description: draft.merchant || "WhatsApp receipt",
+      amount,
+      date: draft.date,
+      status: "APPROVED",
+      splits: { create: splits.map((s) => ({ userId: s.userId, amount: s.amount })) },
+    },
+  });
+
+  await prisma.transactionDraft.update({ where: { id: draftId }, data: { status: "ADDED" } });
+  await prisma.whatsApp.update({ where: { userId }, data: { pendingDraftId: null } });
+
+  const lines = splits.map((s) => `• ${s.name} — ₹${s.amount.toFixed(2)}`);
+  return [
+    `✅ Added ₹${amount.toFixed(2)} at ${draft.merchant} to *${group.name}*.`,
+    `Split equally among ${members.length} members:`,
+    lines.join("\n"),
+    "Open the app to see it in the group.",
+  ].join("\n");
 }
 
 async function handleIncoming(payload: {
@@ -342,12 +424,40 @@ async function handleIncoming(payload: {
       const mime = payload.mediaTypes[0] || "image/jpeg";
       try {
         const data = await extractReceipt(buffer, mime);
-        await saveReceiptDraft(userId, data);
+        const draftId = await saveReceiptDraft(userId, data);
         const reply = await formatReceiptReply(data);
+
+        if (!draftId) {
+          await sendWhatsAppMessage(
+            payload.from,
+            reply +
+              "\n\n⚠️ I couldn't save this to your inbox. You can still add it manually in the app."
+          );
+          return;
+        }
+
+        const memberships = await listUserGroups(userId);
+        if (memberships.length === 0) {
+          await prisma.whatsApp.update({
+            where: { userId },
+            data: { pendingDraftId: null },
+          });
+          await sendWhatsAppMessage(
+            payload.from,
+            reply +
+              "\n\n✅ Saved to your Splitx inbox, but you're not in any group yet. Create a group in the app and I can add it then."
+          );
+          return;
+        }
+
+        await prisma.whatsApp.update({
+          where: { userId },
+          data: { pendingDraftId: draftId },
+        });
+
         await sendWhatsAppMessage(
           payload.from,
-          reply +
-            "\n\n✅ Saved to your Splitx inbox. Open the app and add it to a group to split it."
+          reply + "\n\n📥 Saved to your inbox!\n*Which group should I add this to?*\n" + buildGroupPrompt(memberships)
         );
       } catch (error: any) {
         console.error("WhatsApp OCR error:", error);
@@ -359,8 +469,50 @@ async function handleIncoming(payload: {
       return;
     }
 
-    const command = (payload.body || "").trim().split(/\s+/)[0].toLowerCase();
-    const rest = (payload.body || "").trim().replace(command, "").trim();
+    const text = (payload.body || "").trim();
+
+    // If we're awaiting a group choice for a saved draft, resolve it first (unless it's a command).
+    if (whatsapp.pendingDraftId && !text.startsWith("/")) {
+      const lower = text.toLowerCase();
+      if (["cancel", "skip", "stop", "no"].includes(lower)) {
+        await prisma.whatsApp.update({
+          where: { userId },
+          data: { pendingDraftId: null },
+        });
+        await sendWhatsAppMessage(
+          payload.from,
+          "OK, I've left it in your inbox as a pending draft. You can add it to a group from the app."
+        );
+        return;
+      }
+
+      const memberships = await listUserGroups(userId);
+      const num = parseInt(text, 10);
+      let chosen = !isNaN(num) && num >= 1 && num <= memberships.length ? memberships[num - 1] : null;
+      if (!chosen) {
+        chosen =
+          memberships.find(
+            (m) =>
+              m.group.name.toLowerCase().includes(lower) ||
+              lower.includes(m.group.name.toLowerCase())
+          ) || null;
+      }
+
+      if (!chosen) {
+        await sendWhatsAppMessage(
+          payload.from,
+          "I didn't catch that. Reply with the group *number* or *name* from the list, or *cancel*."
+        );
+        return;
+      }
+
+      const result = await createReceiptExpense(userId, whatsapp.pendingDraftId, chosen.group, payload.from);
+      await sendWhatsAppMessage(payload.from, result);
+      return;
+    }
+
+    const command = text.split(/\s+/)[0].toLowerCase();
+    const rest = text.replace(command, "").trim();
 
     let reply: string;
     if (["/help", "help", "/start"].includes(command)) {
