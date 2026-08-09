@@ -443,4 +443,102 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  coinsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: Spacing.three,
+    marginBottom: Spacing.four,
+  },
+  coinsIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.three,
+  },
+  coinsCopy: {
+    flex: 1,
+  },
+  coinsLabel: {
+    fontSize: 12,
+    fontFamily: Typography.uiBold,
+    marginBottom: 4,
+  },
+  coinsValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    minHeight: 28,
+    gap: 6,
+  },
+  coinsValue: {
+    fontSize: 24,
+    fontFamily: Typography.uiBold,
+  },
+  coinsUnit: {
+    fontSize: 14,
+    fontFamily: Typography.body,
+  },
+  waCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: Spacing.three,
+    marginBottom: Spacing.three,
+  },
+  waIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.three,
+  },
+  waCopy: {
+    flex: 1,
+  },
+  waLabel: {
+    fontSize: 12,
+    fontFamily: Typography.uiBold,
+    marginBottom: 4,
+  },
+  waStatus: {
+    fontSize: 12,
+    fontFamily: Typography.body,
+  },
+  waMiniBtn: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  waMiniBtnText: {
+    fontSize: 12,
+    fontFamily: Typography.uiBold,
+  },
+  waForm: {
+    marginBottom: Spacing.four,
+  },
+  waActionBtn: {
+    height: 44,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Spacing.two,
+  },
+  waActionBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontFamily: Typography.uiBold,
+  },
+  waBtnRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.two,
+  },
+  waLinkRow: {
+    marginBottom: Spacing.four,
+  },
 });

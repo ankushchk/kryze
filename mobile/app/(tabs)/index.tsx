@@ -28,7 +28,9 @@ import {
   ArrowRight,
   History,
   User,
-  Users
+  Users,
+  MessageCircle,
+  Coins as CoinsIcon
 } from 'lucide-react-native';
 import { useHomeScreen, TransactionDraft } from '@/hooks/useHomeScreen';
 import { useTheme } from '@/hooks/use-theme';
@@ -36,6 +38,13 @@ import { Typography } from '@/constants/theme';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { styles } from '@/styles/index.styles';
+import { fetchCoinBalance } from '@/lib/coins';
+import {
+  fetchWhatsAppLinkStatus,
+  sendWhatsAppCode,
+  linkWhatsApp,
+  unlinkWhatsApp,
+} from '@/lib/whatsapp';
 
 function SkeletonCard() {
   const theme = useTheme();
@@ -119,6 +128,36 @@ export default function HomeScreen() {
   const [profileEmail, setProfileEmail] = React.useState(user?.email || '');
   const [profileUpi, setProfileUpi] = React.useState(user?.upiId || '');
   const [submittingProfile, setSubmittingProfile] = React.useState(false);
+  const [totalCoins, setTotalCoins] = React.useState<number | null>(null);
+  const [whatsappStatus, setWhatsappStatus] = React.useState<{ linked: boolean; phone: string | null }>({
+    linked: false,
+    phone: null,
+  });
+  const [whatsappPhone, setWhatsappPhone] = React.useState('');
+  const [whatsappCode, setWhatsappCode] = React.useState('');
+  const [waLoading, setWaLoading] = React.useState(false);
+  const [waCodeSent, setWaCodeSent] = React.useState(false);
+  const [waWorking, setWaWorking] = React.useState(false);
+
+  const handleOpenProfile = () => {
+    setShowProfileModal(true);
+    fetchCoinBalance()
+      .then((res) => setTotalCoins(res.totalCollected ?? 0))
+      .catch((err) => {
+        console.warn('Failed to load total coins collected', err);
+        setTotalCoins(0);
+      });
+    setWaLoading(true);
+    fetchWhatsAppLinkStatus()
+      .then((res) => {
+        setWhatsappStatus({ linked: res.linked, phone: res.phone });
+        if (res.phone) setWhatsappPhone(res.phone);
+      })
+      .catch((err) => {
+        console.warn('Failed to load WhatsApp link status', err);
+      })
+      .finally(() => setWaLoading(false));
+  };
 
   React.useEffect(() => {
     if (showProfileModal && user) {
@@ -145,6 +184,55 @@ export default function HomeScreen() {
     } else {
       setShowProfileModal(false);
       Alert.alert('Success', 'Profile updated successfully');
+    }
+  };
+
+  const handleSendWaCode = async () => {
+    if (!whatsappPhone.trim()) {
+      Alert.alert('Error', 'Enter your WhatsApp number first');
+      return;
+    }
+    setWaWorking(true);
+    try {
+      await sendWhatsAppCode(whatsappPhone.trim());
+      setWaCodeSent(true);
+      Alert.alert('Code sent', 'Check WhatsApp for your 6-digit verification code.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not send the code');
+    } finally {
+      setWaWorking(false);
+    }
+  };
+
+  const handleLinkWhatsApp = async () => {
+    if (!whatsappCode.trim()) {
+      Alert.alert('Error', 'Enter the 6-digit code from WhatsApp');
+      return;
+    }
+    setWaWorking(true);
+    try {
+      await linkWhatsApp(whatsappPhone.trim(), whatsappCode.trim());
+      setWhatsappStatus({ linked: true, phone: whatsappPhone.trim() });
+      setWaCodeSent(false);
+      setWhatsappCode('');
+      Alert.alert('Success!', 'Your WhatsApp is now linked to Splitx.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not link WhatsApp');
+    } finally {
+      setWaWorking(false);
+    }
+  };
+
+  const handleUnlinkWhatsApp = async () => {
+    setWaWorking(true);
+    try {
+      await unlinkWhatsApp();
+      setWhatsappStatus({ linked: false, phone: null });
+      Alert.alert('Unlinked', 'Your WhatsApp is no longer connected.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not unlink WhatsApp');
+    } finally {
+      setWaWorking(false);
     }
   };
 
@@ -182,7 +270,7 @@ export default function HomeScreen() {
           )}
           <TouchableOpacity
             style={[styles.headerBtn, { backgroundColor: theme.surface2, marginRight: 8 }]}
-            onPress={() => setShowProfileModal(true)}
+            onPress={handleOpenProfile}
           >
             <User size={18} color={theme.primary} />
           </TouchableOpacity>
@@ -587,6 +675,112 @@ export default function HomeScreen() {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={[styles.coinsCard, { backgroundColor: theme.primaryDim, borderColor: theme.border }]}>
+                  <View style={[styles.coinsIconWrap, { backgroundColor: theme.surface }]}>
+                    <CoinsIcon size={22} color={theme.primary} />
+                  </View>
+                  <View style={styles.coinsCopy}>
+                    <Text style={[styles.coinsLabel, { color: theme.textSecondary }]}>
+                      Total coins collected
+                    </Text>
+                    <View style={styles.coinsValueRow}>
+                      {totalCoins == null ? (
+                        <ActivityIndicator size="small" color={theme.primary} />
+                      ) : (
+                        <>
+                          <Text style={[styles.coinsValue, { color: theme.primary }]}>{totalCoins}</Text>
+                          <Text style={[styles.coinsUnit, { color: theme.textSecondary }]}>coins</Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                {/* WhatsApp Bot */}
+                <View style={[styles.waCard, { backgroundColor: theme.primaryDim, borderColor: theme.border }]}>
+                  <View style={[styles.waIconWrap, { backgroundColor: theme.surface }]}>
+                    {waLoading ? (
+                      <ActivityIndicator size="small" color="#25D366" />
+                    ) : (
+                      <MessageCircle size={22} color="#25D366" />
+                    )}
+                  </View>
+                  <View style={styles.waCopy}>
+                    <Text style={[styles.waLabel, { color: theme.textSecondary }]}>WhatsApp Bot</Text>
+                    <Text style={[styles.waStatus, { color: whatsappStatus.linked ? '#25D366' : theme.text }]}>
+                      {waLoading
+                        ? 'Checking…'
+                        : whatsappStatus.linked
+                        ? `Linked • ${whatsappStatus.phone}`
+                        : 'Not linked — send receipts & get splits on WhatsApp'}
+                    </Text>
+                  </View>
+                  {!waLoading && whatsappStatus.linked && (
+                    <TouchableOpacity
+                      style={[styles.waMiniBtn, { borderColor: theme.border }]}
+                      onPress={handleUnlinkWhatsApp}
+                      disabled={waWorking}
+                    >
+                      <Text style={[styles.waMiniBtnText, { color: theme.primary }]}>
+                        {waWorking ? '…' : 'Unlink'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {!whatsappStatus.linked && !waCodeSent && !waLoading && (
+                  <View style={styles.waForm}>
+                    <TextInput
+                      style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                      value={whatsappPhone}
+                      onChangeText={setWhatsappPhone}
+                      placeholder="WhatsApp number (+91 XXXXX XXXXX)"
+                      placeholderTextColor={theme.text3}
+                      keyboardType="phone-pad"
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      style={[styles.waActionBtn, { backgroundColor: '#25D366' }]}
+                      onPress={handleSendWaCode}
+                      disabled={waWorking}
+                    >
+                      <Text style={styles.waActionBtnText}>{waWorking ? 'Sending…' : 'Send code on WhatsApp'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {!whatsappStatus.linked && waCodeSent && !waLoading && (
+                  <View style={styles.waLinkRow}>
+                    <TextInput
+                      style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                      value={whatsappCode}
+                      onChangeText={setWhatsappCode}
+                      placeholder="Enter 6-digit code"
+                      placeholderTextColor={theme.text3}
+                      keyboardType="number-pad"
+                    />
+                    <View style={styles.waBtnRow}>
+                      <TouchableOpacity
+                        style={[styles.waActionBtn, { backgroundColor: '#25D366', flex: 1 }]}
+                        onPress={handleLinkWhatsApp}
+                        disabled={waWorking}
+                      >
+                        <Text style={styles.waActionBtnText}>{waWorking ? 'Linking…' : 'Link WhatsApp'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.waActionBtn, { backgroundColor: theme.border, flex: 1, marginLeft: 8 }]}
+                        onPress={() => {
+                          setWaCodeSent(false);
+                          setWhatsappCode('');
+                        }}
+                        disabled={waWorking}
+                      >
+                        <Text style={[styles.waActionBtnText, { color: theme.text }]}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 <View style={styles.formGroup}>
                   <Text style={[styles.inputLabel, { color: theme.text }]}>Full Name</Text>
                   <TextInput
