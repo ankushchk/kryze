@@ -21,6 +21,11 @@ model User {
   memberships  GroupMember[]
   expenses     Expense[]
   splits       ExpenseSplit[]
+  coinLedger   CoinLedger[]
+  coinBalance  CoinBalance?
+  subscription Subscription?
+  whatsapp     WhatsApp?
+  botCommands  BotCommandLog[]
 }
 
 model TransactionDraft {
@@ -98,3 +103,50 @@ model ExpenseSplit {
 
   @@unique([expenseId, userId])
 }
+
+model CoinLedger {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Int      // positive = earned, negative = redeemed
+  reason      String   // SETTLEMENT, REDEEMED_PREMIUM, ADJUSTMENT
+  referenceId String?
+  createdAt   DateTime @default(now())
+}
+
+model CoinBalance {
+  userId    String   @id @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @unique @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    String    @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED
+  source    String    // COINS_REDEMPTION, PAID
+  startedAt DateTime?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model WhatsApp {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @unique @db.Uuid
+  phone    String   @unique
+  linkedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BotCommandLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  command   String
+  payload   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
