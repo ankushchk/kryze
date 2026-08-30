@@ -3,6 +3,7 @@ import twilio from "twilio";
 import { prisma } from "../config/dbConnect.js";
 import { sendWhatsAppMessage, downloadTwilioMedia, getTwilioClient } from "../config/twilio.js";
 import { extractReceipt } from "./ocr.js";
+import { interpretExpenseTranscript, transcribeWithElevenLabs, VoiceInterpretation } from "./voice.js";
 import { normalizePhoneNumber } from "./auth.js";
 import { AuthRequest } from "../middleware/auth.js";
 
@@ -254,14 +255,276 @@ function helpText(): string {
     "*Splitx WhatsApp Bot*",
     "Available commands:",
     "• /status — your group balances across all tabs",
+    "• /groups — your active groups",
+    "• /recent — your latest shared expenses",
+    "• /who — who owes you and what you owe",
+    "• /remind <name> — send a gentle settle-up reminder",
+    "• /newgroup <name> | <emails / phone numbers> — create a group",
     "• /help — show this message",
-    "• /remind <name> — request a settle-up reminder huddle (coming soon)",
     "",
-    "Send a receipt photo to:",
-    "1. Get an itemized split back",
-    "2. Pick a group to add it to (equal split)",
-    "3. It's saved to your app inbox either way",
+    "Or simply type: *paid 450 for chai with Goa Crew*",
+    "Or send a receipt photo / voice note. Say *create a Goa Trip group with Riya and Aman* and reply CREATE when Kryze repeats it back.",
+    "Kryze always asks before adding an expense or creating a group.",
   ].join("\n");
+}
+
+async function createGroupFromWhatsApp(userId: string, input: string): Promise<string> {
+  const [rawName, rawMembers = ""] = input.split("|", 2);
+  const name = rawName?.trim();
+  if (!name) {
+    return "Usage: */newgroup Goa Trip | riya@example.com, +919876543210*\nMembers must already have a Splitx account.";
+  }
+  if (name.length > 80) return "Please keep the group name under 80 characters.";
+
+  const identifiers = rawMembers.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 15);
+  const foundMembers: Array<{ id: string; name: string | null }> = [];
+  const notFound: string[] = [];
+  for (const identifier of identifiers) {
+    const target = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: identifier.toLowerCase() },
+          { phoneNumber: identifier },
+          { phoneNumber: normalizePhoneNumber(identifier) },
+        ],
+      },
+      select: { id: true, name: true },
+    });
+    if (target && target.id !== userId && !foundMembers.some((member) => member.id === target.id)) {
+      foundMembers.push(target);
+    } else if (!target) {
+      notFound.push(identifier);
+    }
+  }
+
+  const group = await prisma.$transaction(async (tx) => {
+    const created = await tx.group.create({ data: { name, icon: "👥" } });
+    await tx.groupMember.create({ data: { groupId: created.id, userId, role: "ADMIN" } });
+    if (foundMembers.length) {
+      await tx.groupMember.createMany({
+        data: foundMembers.map((member) => ({ groupId: created.id, userId: member.id, role: "MEMBER" })),
+        skipDuplicates: true,
+      });
+    }
+    return created;
+  });
+
+  const additions = foundMembers.length
+    ? ` Added: ${foundMembers.map((member) => member.name || "a member").join(", ")}.`
+    : " You're the first member.";
+  const missing = notFound.length ? `\nCouldn't add yet: ${notFound.join(", ")} — they need a Splitx account first.` : "";
+  return `✅ *${group.name}* is ready.${additions}${missing}\nSend a receipt, voice note, or expense message whenever you're ready.`;
+}
+
+async function queueVoiceGroupProposal(
+  userId: string,
+  from: string,
+  interpretation: VoiceInterpretation
+): Promise<void> {
+  const name = interpretation.groupName?.trim();
+  if (!name || name.length > 80) {
+    await sendWhatsAppMessage(from, "I heard a group request, but missed a usable group name. Try: “create a Goa Trip group with Riya and Aman.”");
+    return;
+  }
+
+  const requestedNames = [...new Set(interpretation.memberNames.map((member) => member.trim()).filter(Boolean))].slice(0, 15);
+  const resolved: Array<{ id: string; name: string | null }> = [];
+  const notFound: string[] = [];
+  for (const memberName of requestedNames) {
+    const user = await prisma.user.findFirst({
+      where: { name: { equals: memberName, mode: "insensitive" } },
+      select: { id: true, name: true },
+    });
+    if (user && user.id !== userId && !resolved.some((member) => member.id === user.id)) {
+      resolved.push(user);
+    } else if (!user) {
+      notFound.push(memberName);
+    }
+  }
+
+  await prisma.whatsApp.update({
+    where: { userId },
+    data: {
+      pendingDraftId: null,
+      pendingGroupName: name,
+      pendingGroupMemberIds: JSON.stringify(resolved.map((member) => member.id)),
+      pendingGroupExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    },
+  });
+
+  const additions = resolved.length
+    ? ` I found: ${resolved.map((member) => member.name || "a member").join(", ")}.`
+    : " You'll be the first member.";
+  const missing = notFound.length ? ` I couldn't find yet: ${notFound.join(", ")}. They can be invited after creating a Splitx account.` : "";
+  await sendWhatsAppMessage(
+    from,
+    `I heard: create *${name}*.${additions}${missing}\n\nReply *CREATE* within 5 minutes to make it, or *CANCEL* to discard it.`
+  );
+}
+
+async function handlePendingVoiceGroupConfirmation(
+  whatsapp: { userId: string; pendingGroupName: string | null; pendingGroupMemberIds: string | null; pendingGroupExpiresAt: Date | null },
+  from: string,
+  text: string
+): Promise<boolean> {
+  if (!whatsapp.pendingGroupName) return false;
+  const normalized = text.trim().toLowerCase().replace(/[.!]/g, "");
+  const clear = () => prisma.whatsApp.update({
+    where: { userId: whatsapp.userId },
+    data: { pendingGroupName: null, pendingGroupMemberIds: null, pendingGroupExpiresAt: null },
+  });
+
+  if (!whatsapp.pendingGroupExpiresAt || whatsapp.pendingGroupExpiresAt <= new Date()) {
+    await clear();
+    await sendWhatsAppMessage(from, "That group proposal expired. Send another voice note whenever you're ready.");
+    return true;
+  }
+  if (["cancel", "stop", "no", "discard"].includes(normalized)) {
+    await clear();
+    await sendWhatsAppMessage(from, "Cancelled — no group was created.");
+    return true;
+  }
+  if (!["create", "confirm", "yes", "go ahead", "do it"].includes(normalized)) {
+    await sendWhatsAppMessage(from, `Your *${whatsapp.pendingGroupName}* group is ready for review. Reply *CREATE* or *CANCEL*.`);
+    return true;
+  }
+
+  let memberIds: string[] = [];
+  try {
+    const parsed = JSON.parse(whatsapp.pendingGroupMemberIds || "[]");
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) memberIds = parsed;
+  } catch {
+    // A malformed proposal should still create a private group rather than fail the confirmation.
+  }
+  const group = await prisma.$transaction(async (tx) => {
+    const created = await tx.group.create({ data: { name: whatsapp.pendingGroupName!, icon: "👥" } });
+    await tx.groupMember.create({ data: { groupId: created.id, userId: whatsapp.userId, role: "ADMIN" } });
+    if (memberIds.length) {
+      await tx.groupMember.createMany({
+        data: memberIds.filter((id) => id !== whatsapp.userId).map((userId) => ({ groupId: created.id, userId, role: "MEMBER" })),
+        skipDuplicates: true,
+      });
+    }
+    return created;
+  });
+  await clear();
+  await sendWhatsAppMessage(from, `✅ *${group.name}* is ready. Send a receipt, voice note, or expense message whenever you're ready.`);
+  return true;
+}
+
+async function formatGroups(userId: string): Promise<string> {
+  const memberships = await listUserGroups(userId);
+  if (!memberships.length) return "You aren't in a Splitx group yet. Create one in the app, then come back here.";
+  return ["*Your groups*", ...memberships.map((m: any, i: number) => `${i + 1}. *${m.group.name}* — ${m.group.members.length} members`)].join("\n");
+}
+
+async function formatRecentExpenses(userId: string): Promise<string> {
+  const memberships = await listUserGroups(userId);
+  const groupIds = memberships.map((m: any) => m.group.id);
+  if (!groupIds.length) return "No groups yet, so there isn't any shared activity to show.";
+  const expenses = await prisma.expense.findMany({
+    where: { groupId: { in: groupIds }, status: { not: "PENDING_VERIFICATION" } },
+    include: { group: { select: { name: true } }, paidBy: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  if (!expenses.length) return "No shared expenses yet. Send a receipt, voice note, or say what you paid to get started.";
+  return [
+    "*Latest shared expenses*",
+    ...expenses.map((expense) => `• ${expense.group.name}: ₹${expense.amount.toFixed(2)} at *${expense.description}* — paid by ${expense.paidBy.name || "a member"}`),
+  ].join("\n");
+}
+
+async function saveConversationDraft(
+  userId: string,
+  transcript: string,
+  interpretation: VoiceInterpretation,
+  source: "WhatsApp Voice" | "WhatsApp Text"
+): Promise<string | null> {
+  if (interpretation.intent !== "expense_draft" || !interpretation.merchant || interpretation.amount === null) return null;
+  const parsedDate = interpretation.date ? new Date(interpretation.date) : new Date();
+  const date = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  try {
+    const draft = await prisma.transactionDraft.create({
+      data: {
+        userId,
+        sender: source,
+        messageBody: transcript,
+        merchant: interpretation.merchant,
+        amount: interpretation.amount,
+        date,
+        status: "PENDING",
+      },
+    });
+    return draft.id;
+  } catch (error) {
+    console.error("Failed to save WhatsApp conversation draft:", error);
+    return null;
+  }
+}
+
+async function queueConversationDraft(
+  userId: string,
+  from: string,
+  transcript: string,
+  source: "WhatsApp Voice" | "WhatsApp Text"
+): Promise<void> {
+  const memberships = await listUserGroups(userId);
+  const groups = memberships.map((m: any) => ({ id: m.group.id, name: m.group.name }));
+  const interpretation = await interpretExpenseTranscript(transcript, groups, userId);
+  if (interpretation.intent === "group_proposal") {
+    await queueVoiceGroupProposal(userId, from, interpretation);
+    return;
+  }
+  if (interpretation.intent !== "expense_draft" || !interpretation.merchant || interpretation.amount === null) {
+    await sendWhatsAppMessage(from, interpretation.reply);
+    return;
+  }
+
+  const draftId = await saveConversationDraft(userId, transcript, interpretation, source);
+  if (!draftId) {
+    await sendWhatsAppMessage(from, "I understood the expense, but couldn't save the review draft. Please try again.");
+    return;
+  }
+  if (!memberships.length) {
+    await sendWhatsAppMessage(from, `${interpretation.reply}\n\n📥 Saved as a review draft in your Splitx inbox. Create a group in the app when you're ready to split it.`);
+    return;
+  }
+
+  await prisma.whatsApp.update({ where: { userId }, data: { pendingDraftId: draftId } });
+  const suggested = interpretation.groupId ? memberships.find((m: any) => m.group.id === interpretation.groupId)?.group.name : null;
+  await sendWhatsAppMessage(
+    from,
+    `${interpretation.reply}\n\n📥 Saved as a review draft.${suggested ? ` I think this belongs in *${suggested}*.` : ""}\n*Reply with a group name or number to confirm and add it.*\n${buildGroupPrompt(memberships)}`
+  );
+}
+
+async function sendSettlementReminder(userId: string, from: string, nameQuery: string): Promise<string> {
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId },
+    include: { group: { include: { members: { include: { user: { include: { whatsapp: true } } } } } } },
+  });
+  const candidates = memberships.flatMap((membership: any) => membership.group.members)
+    .filter((member: any) => member.userId !== userId && member.user.name?.toLowerCase().includes(nameQuery.toLowerCase()));
+  const target = candidates[0];
+  if (!target) return `I couldn't find *${nameQuery}* in one of your groups. Try their first name as it appears in Splitx.`;
+  if (!target.user.whatsapp?.phone) return `${target.user.name || "That member"} hasn't linked WhatsApp to Splitx yet, so I can't send a private reminder.`;
+
+  const groupIds = memberships.map((membership) => membership.group.id);
+  const expenses = await prisma.expense.findMany({
+    where: { groupId: { in: groupIds }, status: { not: "PENDING_VERIFICATION" } },
+    include: { splits: true },
+  });
+  let amountOwed = 0;
+  for (const expense of expenses) {
+    if (expense.paidById === userId) amountOwed += expense.splits.find((split) => split.userId === target.userId)?.amount || 0;
+    if (expense.paidById === target.userId) amountOwed -= expense.splits.find((split) => split.userId === userId)?.amount || 0;
+  }
+  if (amountOwed <= 0.01) return `I don't see an amount that ${target.user.name || nameQuery} currently owes you directly, so I didn't send a reminder.`;
+
+  const requester = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await sendWhatsAppMessage(target.user.whatsapp.phone, `Hi ${target.user.name || "there"} — ${requester?.name || "a Splitx member"} sent a gentle Splitx reminder. You currently owe about ₹${amountOwed.toFixed(2)} across your shared expenses. Open Splitx when you're ready to settle up. 🙌`);
+  return `✓ Reminder sent to ${target.user.name || nameQuery} for approximately ₹${amountOwed.toFixed(2)}.`;
 }
 
 async function formatReceiptReply(data: any): Promise<string> {
@@ -412,16 +675,29 @@ async function handleIncoming(payload: {
     const userId = whatsapp.userId;
 
     if (payload.numMedia > 0 && payload.mediaUrls[0]) {
-      await sendWhatsAppMessage(payload.from, "Got it! Scanning your receipt… 🙌");
+      const mime = payload.mediaTypes[0] || "image/jpeg";
+      const isVoiceNote = mime.startsWith("audio/") || mime.includes("ogg");
+      await sendWhatsAppMessage(payload.from, isVoiceNote ? "Got it! Listening to your expense note… 🎙️" : "Got it! Scanning your receipt… 🙌");
       const buffer = await downloadTwilioMedia(payload.mediaUrls[0]);
       if (!buffer) {
         await sendWhatsAppMessage(
           payload.from,
-          "Sorry, I couldn't download the receipt image. Please try sending it again."
+          isVoiceNote ? "Sorry, I couldn't download that voice note. Please try sending it again." : "Sorry, I couldn't download the receipt image. Please try sending it again."
         );
         return;
       }
-      const mime = payload.mediaTypes[0] || "image/jpeg";
+      if (isVoiceNote) {
+        try {
+          const transcript = await transcribeWithElevenLabs(buffer, mime, "whatsapp-voice-note");
+          await sendWhatsAppMessage(payload.from, `I heard: “${transcript}”`);
+          if (await handlePendingVoiceGroupConfirmation(whatsapp, payload.from, transcript)) return;
+          await queueConversationDraft(userId, payload.from, transcript, "WhatsApp Voice");
+        } catch (error: any) {
+          console.error("WhatsApp voice-note error:", error);
+          await sendWhatsAppMessage(payload.from, "I couldn't understand that voice note. Try saying the amount, what you paid for, and optionally the group name.");
+        }
+        return;
+      }
       try {
         const data = await extractReceipt(buffer, mime);
         const draftId = await saveReceiptDraft(userId, data);
@@ -471,6 +747,11 @@ async function handleIncoming(payload: {
 
     const text = (payload.body || "").trim();
 
+    // Voice-created groups require an explicit, short confirmation before any data is created.
+    if (whatsapp.pendingGroupName && !text.startsWith("/")) {
+      if (await handlePendingVoiceGroupConfirmation(whatsapp, payload.from, text)) return;
+    }
+
     // If we're awaiting a group choice for a saved draft, resolve it first (unless it's a command).
     if (whatsapp.pendingDraftId && !text.startsWith("/")) {
       const lower = text.toLowerCase();
@@ -517,24 +798,35 @@ async function handleIncoming(payload: {
     let reply: string;
     if (["/help", "help", "/start"].includes(command)) {
       reply = helpText();
+    } else if (["/newgroup", "/creategroup", "/group"].includes(command)) {
+      reply = await createGroupFromWhatsApp(userId, rest);
     } else if (["/status", "status"].includes(command)) {
+      reply = await summarizeStatus(userId);
+    } else if (["/groups", "groups"].includes(command)) {
+      reply = await formatGroups(userId);
+    } else if (["/recent", "recent"].includes(command)) {
+      reply = await formatRecentExpenses(userId);
+    } else if (["/who", "who", "/whoowes", "whoowes", "/settle", "settle"].includes(command)) {
       reply = await summarizeStatus(userId);
     } else if (command === "/remind" || command === "/remindme") {
       if (rest) {
-        reply = `✓ Noted! We'll nudge ${rest} for you soon. Real-time settle-up reminders arrive in the next Update.`;
+        reply = await sendSettlementReminder(userId, payload.from, rest);
       } else {
         reply = `Usage: /remind <friend name>\nReply the name of who you want a settlement reminder for.`;
       }
       await prisma.botCommandLog.create({
         data: { userId, command: "/remind", payload: rest || null },
       });
+    } else if (!text.startsWith("/")) {
+      await queueConversationDraft(userId, payload.from, text, "WhatsApp Text");
+      return;
     } else {
       reply = helpText();
     }
 
-    if (["/status", "status"].includes(command)) {
+    if (["/newgroup", "/creategroup", "/group", "/status", "status", "/groups", "groups", "/recent", "recent", "/who", "who", "/whoowes", "whoowes", "/settle", "settle"].includes(command)) {
       await prisma.botCommandLog.create({
-        data: { userId, command: "/status", payload: null },
+        data: { userId, command, payload: null },
       });
     }
 

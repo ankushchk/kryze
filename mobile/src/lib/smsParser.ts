@@ -1,40 +1,44 @@
+export function extractSmsAmount(body: string): number | null {
+  // Currency-first patterns catch both bank alerts and ordinary payment SMS.
+  // Amount-word patterns cover formats such as "Amount debited: 450".
+  const amountRegexes = [
+    /(?:₹|rs\.?|inr|rupees?)\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i,
+    /(?:amount|amt|total|debited|credited|spent|sent|paid|charged|withdrawn|received)\D{0,18}([0-9][0-9,]*(?:\.[0-9]+)?)/i,
+  ];
+
+  for (const regex of amountRegexes) {
+    const match = body.match(regex);
+    if (!match?.[1]) continue;
+    const amount = Number.parseFloat(match[1].replace(/,/g, ''));
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return null;
+}
+
+// Use this for the Unprocessed inbox. It intentionally includes credits,
+// refunds, offers and other monetary messages so the user, not a brittle
+// keyword list, decides what deserves action.
+export function hasMonetaryAmount(body: string): boolean {
+  return extractSmsAmount(body) !== null;
+}
+
+// Kept for any caller that specifically needs an outgoing/debit transaction.
 export function isTransactionSms(body: string): boolean {
   const lowercase = body.toLowerCase();
-  
-  // Basic markers for debit transactions
-  const hasDebitKeywords = 
+  const hasDebitKeywords =
     lowercase.includes('debited') ||
     lowercase.includes('spent') ||
     lowercase.includes('sent') ||
     lowercase.includes('paid') ||
     lowercase.includes('charged') ||
     lowercase.includes('debit of');
-    
-  // Check if it looks like a transactional text containing amount and banking markers
-  const hasAmount = /(?:rs\.?|inr|spent)\s*[0-9,]+/i.test(lowercase);
-  
-  return hasDebitKeywords && hasAmount;
+  return hasDebitKeywords && hasMonetaryAmount(body);
 }
 
 export function parseTransactionSms(body: string): { merchant: string; amount: number } {
   // Amount Extraction
   let amount = 0;
-  // Match patterns like "Rs. 250", "Rs 250", "INR 250.00", "debited by 250"
-  const amountRegexes = [
-    /(?:rs\.?|inr|spent)\s*([0-9,]+(?:\.[0-9]+)?)/i,
-    /debited\s*(?:by|of)?\s*(?:rs\.?|inr)?\s*([0-9,]+(?:\.[0-9]+)?)/i
-  ];
-  
-  for (const regex of amountRegexes) {
-    const match = body.match(regex);
-    if (match && match[1]) {
-      const parsed = parseFloat(match[1].replace(/,/g, ''));
-      if (!isNaN(parsed)) {
-        amount = parsed;
-        break;
-      }
-    }
-  }
+  amount = extractSmsAmount(body) ?? 0;
 
   // Merchant Extraction
   let merchant = 'Unknown Merchant';

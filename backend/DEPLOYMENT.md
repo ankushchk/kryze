@@ -7,7 +7,7 @@ This guide explains how to deploy your Express + TypeScript API server and the P
 ## Architecture Overview
 1. **Express Server:** Containerized using the [Dockerfile](file:///Users/ankush/Desktop/kryze/backend/Dockerfile) (built on Node 20).
 2. **Database:** Prisma ORM connected to PostgreSQL.
-3. **External Services:** Twilio (SMS), Gemini (AI OCR), Cloudinary (Image storage), and Razorpay (Payments).
+3. **External Services:** Twilio (SMS), OpenAI (AI OCR), Cloudinary (Image storage), and Razorpay (Payments).
 
 ---
 
@@ -38,14 +38,25 @@ GOOGLE_IOS_CLIENT_ID=275273722443-a123pm053nlr740ma4or23ilp70dmkvo.apps.googleus
 TWILIO_ACCOUNT_SID=your_twilio_account_sid
 TWILIO_AUTH_TOKEN=your_real_twilio_token
 TWILIO_PHONE_NUMBER=your_real_twilio_number
-GEMINI_API_KEY=your_gemini_api_key
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_RECEIPT_MODEL=gpt-5
 CLOUDINARY_CLOUD_NAME=rftzkz89
 CLOUDINARY_API_KEY=938736664578443
 CLOUDINARY_API_SECRET=your_cloudinary_secret
 RAZORPAY_KEY_ID=your_razorpay_key_id
 RAZORPAY_KEY_SECRET=your_razorpay_secret
 DISABLE_REAL_SMS=false
+ENABLE_ELEVENLABS_OUTBOUND_CALLS=false
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+ELEVENLABS_AGENT_ID=agent_...
+CALL_REMINDER_CRON_SECRET=use_a_long_random_value
 ```
+
+### Opt-in ElevenLabs call reminders
+
+The API includes call reminders but keeps them disabled until `ENABLE_ELEVENLABS_OUTBOUND_CALLS=true` is set. It uses the existing Twilio number to make the call, then connects it to the configured ElevenLabs agent; this preserves any inbound voice webhook already configured on the Twilio number.
+
+Schedule an authenticated `POST https://your-api.example.com/api/call-reminders/dispatch` once per minute, with the `x-call-reminder-cron-secret` header set to `CALL_REMINDER_CRON_SECRET`. Use your hosting provider's cron service; the dispatcher is intentionally external so multiple server instances cannot double-call a user. The endpoint sends only reminders that were explicitly created with `callConsent: true`, and calls only the caller's verified account phone number.
 
 ---
 
@@ -97,7 +108,8 @@ services:
       TWILIO_ACCOUNT_SID: "..."
       TWILIO_AUTH_TOKEN: "..."
       TWILIO_PHONE_NUMBER: "..."
-      GEMINI_API_KEY: "..."
+      OPENAI_API_KEY: "..."
+      OPENAI_RECEIPT_MODEL: "gpt-5"
       CLOUDINARY_CLOUD_NAME: "..."
       CLOUDINARY_API_KEY: "..."
       CLOUDINARY_API_SECRET: "..."

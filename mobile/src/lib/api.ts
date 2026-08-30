@@ -1,7 +1,36 @@
 import * as SecureStore from 'expo-secure-store';
+import { fetch as expoFetch } from 'expo/fetch';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 const TOKEN_KEY = 'auth_token';
+
+type ApiError = Error & { status?: number };
+
+function responseError(message: string, status: number): ApiError {
+  const error = new Error(message) as ApiError;
+  error.status = status;
+  return error;
+}
+
+async function readJsonResponse(response: Response) {
+  const raw = await response.text();
+  let data: any = null;
+
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    const message = response.ok
+      ? 'The server returned an invalid response. Please try again.'
+      : `The API is unavailable (${response.status}). Check that the backend and tunnel are running.`;
+    throw responseError(message, response.status);
+  }
+
+  if (!response.ok) {
+    throw responseError(data?.error || `Request failed (${response.status})`, response.status);
+  }
+
+  return data;
+}
 
 export async function getAuthToken(): Promise<string | null> {
   try {
@@ -51,11 +80,15 @@ export async function apiRequest(endpoint: string, options: RequestOptions = {})
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
-  const data = await response.json();
+  return readJsonResponse(response);
+}
 
-  if (!response.ok) {
-    throw new Error(data.error || 'Something went wrong');
-  }
-
-  return data;
+export async function apiUpload(endpoint: string, body: FormData) {
+  const token = await getAuthToken();
+  const response = await expoFetch(`${API_URL}${endpoint}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body,
+  });
+  return readJsonResponse(response);
 }

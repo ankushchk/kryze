@@ -581,7 +581,12 @@ export default function GroupDetailsScreen() {
 
       const filename = asset.uri.split('/').pop() || 'receipt.jpg';
       const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      const extension = match?.[1]?.toLowerCase();
+      // `image/jpg` is not a standard MIME type and Gemini rejects it. Prefer
+      // Expo's detected type, but normalize common image-file extensions.
+      const type = extension === 'jpg' || extension === 'jpeg'
+        ? 'image/jpeg'
+        : asset.mimeType || (extension ? `image/${extension}` : 'image/jpeg');
 
       const formData = new FormData();
       formData.append('image', {

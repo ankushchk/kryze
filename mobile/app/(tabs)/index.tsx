@@ -30,8 +30,21 @@ import {
   User,
   Users,
   MessageCircle,
-  Coins as CoinsIcon
+  Coins as CoinsIcon,
+  Mic,
+  Square,
+  Sparkles,
+  AudioLines,
+  ArrowUpRight
 } from 'lucide-react-native';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
+import { File } from 'expo-file-system';
 import { useHomeScreen, TransactionDraft } from '@/hooks/useHomeScreen';
 import { useTheme } from '@/hooks/use-theme';
 import { Typography } from '@/constants/theme';
@@ -45,6 +58,8 @@ import {
   linkWhatsApp,
   unlinkWhatsApp,
 } from '@/lib/whatsapp';
+import { apiRequest, apiUpload } from '@/lib/api';
+import { CallReminder, cancelCallReminder, fetchCallReminders, scheduleCallReminder } from '@/lib/callReminders';
 
 function SkeletonCard() {
   const theme = useTheme();
@@ -83,6 +98,22 @@ function SkeletonCard() {
     </Animated.View>
   );
 }
+
+type VoiceResult = {
+  transcript: string;
+  interpretation: {
+    intent: 'expense_draft' | 'group_proposal' | 'question';
+    merchant: string | null;
+    amount: number | null;
+    category: string | null;
+    date: string | null;
+    groupId: string | null;
+    splitHint: string | null;
+    groupName: string | null;
+    memberNames: string[];
+    reply: string;
+  };
+};
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -138,6 +169,37 @@ export default function HomeScreen() {
   const [waLoading, setWaLoading] = React.useState(false);
   const [waCodeSent, setWaCodeSent] = React.useState(false);
   const [waWorking, setWaWorking] = React.useState(false);
+  const [callReminders, setCallReminders] = React.useState<CallReminder[]>([]);
+  const [callsEnabled, setCallsEnabled] = React.useState(false);
+  const [callReminderMessage, setCallReminderMessage] = React.useState('');
+  const [callReminderTime, setCallReminderTime] = React.useState<'hour' | 'tomorrowMorning' | 'tomorrowEvening'>('tomorrowMorning');
+  const [callConsent, setCallConsent] = React.useState(false);
+  const [callReminderWorking, setCallReminderWorking] = React.useState(false);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
+  const [voiceBusy, setVoiceBusy] = React.useState(false);
+  const [voiceResult, setVoiceResult] = React.useState<VoiceResult | null>(null);
+  const [voiceDraftSaved, setVoiceDraftSaved] = React.useState(false);
+  const [voiceSavedDestination, setVoiceSavedDestination] = React.useState<string | null>(null);
+  const [voiceClarification, setVoiceClarification] = React.useState<string | null>(null);
+  const voicePulse = useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    voicePulse.stopAnimation();
+    if (!recorderState.isRecording) {
+      voicePulse.setValue(0);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(voicePulse, { toValue: 1, duration: 760, useNativeDriver: true }),
+        Animated.timing(voicePulse, { toValue: 0, duration: 760, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [recorderState.isRecording, voicePulse]);
 
   const handleOpenProfile = () => {
     setShowProfileModal(true);
@@ -157,6 +219,59 @@ export default function HomeScreen() {
         console.warn('Failed to load WhatsApp link status', err);
       })
       .finally(() => setWaLoading(false));
+    fetchCallReminders()
+      .then((res) => {
+        setCallReminders(res.reminders);
+        setCallsEnabled(res.callsEnabled);
+      })
+      .catch((err) => console.warn('Failed to load call reminders', err));
+  };
+
+  const getCallReminderDate = () => {
+    const due = new Date();
+    if (callReminderTime === 'hour') {
+      due.setHours(due.getHours() + 1);
+      return due;
+    }
+    due.setDate(due.getDate() + 1);
+    due.setHours(callReminderTime === 'tomorrowMorning' ? 9 : 19, 0, 0, 0);
+    return due;
+  };
+
+  const handleScheduleCallReminder = async () => {
+    if (!callReminderMessage.trim()) {
+      Alert.alert('Add a reminder', 'Tell Kryze what you would like the call to remind you about.');
+      return;
+    }
+    if (!callConsent) {
+      Alert.alert('Confirm call permission', 'Please confirm that Kryze may call your verified phone number.');
+      return;
+    }
+    setCallReminderWorking(true);
+    try {
+      const dueAt = getCallReminderDate();
+      const result = await scheduleCallReminder({ message: callReminderMessage.trim(), scheduledFor: dueAt, callConsent: true });
+      setCallReminders((current) => [...current, result.reminder].sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime()));
+      setCallReminderMessage('');
+      setCallConsent(false);
+      Alert.alert('Call reminder scheduled', `Kryze will call your verified number ${dueAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`);
+    } catch (error: any) {
+      Alert.alert('Could not schedule call', error.message || 'Please try again.');
+    } finally {
+      setCallReminderWorking(false);
+    }
+  };
+
+  const handleCancelCallReminder = async (id: string) => {
+    setCallReminderWorking(true);
+    try {
+      await cancelCallReminder(id);
+      setCallReminders((current) => current.map((reminder) => reminder.id === id ? { ...reminder, status: 'CANCELLED' } : reminder));
+    } catch (error: any) {
+      Alert.alert('Could not cancel call', error.message || 'Please try again.');
+    } finally {
+      setCallReminderWorking(false);
+    }
   };
 
   React.useEffect(() => {
@@ -235,6 +350,189 @@ export default function HomeScreen() {
       setWaWorking(false);
     }
   };
+
+  const startVoiceCapture = async () => {
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Microphone needed', 'Allow microphone access to tell Kryze about an expense.');
+        return;
+      }
+      // Preserve the first note while the user gives Kryze its one permitted
+      // follow-up detail (usually just the amount).
+      if (!voiceClarification) {
+        setVoiceResult(null);
+        setVoiceDraftSaved(false);
+        setVoiceSavedDestination(null);
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+    } catch (error: any) {
+      Alert.alert('Could not start recording', error.message || 'Please try again.');
+    }
+  };
+
+  const stopAndInterpretVoice = async () => {
+    try {
+      setVoiceBusy(true);
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!uri) throw new Error('The recording was empty. Try speaking for a moment before stopping.');
+
+      const formData = new FormData();
+      // Expo's fetch accepts File (a Blob implementation), not React Native's
+      // legacy { uri, name, type } FormData object.
+      formData.append('audio', new File(uri));
+      if (voiceClarification) {
+        formData.append('previousTranscript', voiceClarification);
+        formData.append('followUpAttempted', 'true');
+      }
+      const result = await apiUpload('/api/voice/interpret', formData) as VoiceResult;
+      setVoiceResult(result);
+      setVoiceDraftSaved(false);
+      setVoiceSavedDestination(null);
+
+      if (result.interpretation.intent === 'question') {
+        // Keep enough context for a concise answer such as “five hundred” to
+        // complete the original note. A second incomplete reply clears this
+        // context, so Kryze cannot trap the user in a question loop.
+        setVoiceClarification((current) => current ? null : result.transcript);
+      } else {
+        setVoiceClarification(null);
+      }
+
+      const canRunVoiceAction =
+        (result.interpretation.intent === 'expense_draft' && result.interpretation.amount !== null) ||
+        (result.interpretation.intent === 'group_proposal' && result.interpretation.groupName);
+      if (canRunVoiceAction) {
+        try {
+          const destination = await persistVoiceAction(result);
+          setVoiceDraftSaved(true);
+          setVoiceSavedDestination(destination);
+        } catch (saveError: any) {
+          Alert.alert('Voice captured', saveError.message || 'Kryze understood you, but could not complete the group action. Tap Retry to try again.');
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Kryze missed that', error.message || 'Could not understand the voice note.');
+    } finally {
+      setVoiceBusy(false);
+      await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
+    }
+  };
+
+  const splitEqually = (memberIds: string[], amount: number) => {
+    const share = Math.round((amount / memberIds.length) * 100) / 100;
+    return memberIds.map((userId, index) => ({
+      userId,
+      amount: index === memberIds.length - 1 ? Math.round((amount - share * index) * 100) / 100 : share,
+    }));
+  };
+
+  const createVoiceGroup = async (name: string, memberNames: string[]) => {
+    const response = await apiRequest('/api/groups', {
+      method: 'POST',
+      body: {
+        name,
+        description: 'Created by Kryze Voice',
+        memberIdentifiers: memberNames,
+        icon: '🎙️',
+      },
+    });
+    if (!response?.group?.id) throw new Error('Kryze could not create the shared group.');
+    return response.group as { id: string; name: string; addedMembers: Array<{ id: string }> };
+  };
+
+  const addVoiceExpenseToGroup = async (groupId: string, groupName: string, memberIds: string[], result: VoiceResult) => {
+    const proposal = result.interpretation;
+    if (proposal.amount === null || !user?.id) throw new Error('The voice note did not contain a complete expense.');
+    const participants = Array.from(new Set([user.id, ...memberIds]));
+    await apiRequest(`/api/groups/${groupId}/expenses`, {
+      method: 'POST',
+      body: {
+        description: proposal.merchant || 'Voice expense',
+        amount: proposal.amount,
+        date: proposal.date || new Date().toISOString(),
+        category: proposal.category || undefined,
+        paidById: user.id,
+        splits: splitEqually(participants, proposal.amount),
+      },
+    });
+    return `Split in ${groupName}`;
+  };
+
+  const persistVoiceAction = async (result: VoiceResult): Promise<string> => {
+    const proposal = result.interpretation;
+
+    if (proposal.intent === 'group_proposal') {
+      if (!proposal.groupName) throw new Error('Kryze needs a name for the new group.');
+      const group = await createVoiceGroup(proposal.groupName, proposal.memberNames);
+      return `Created ${group.name}`;
+    }
+
+    if (proposal.amount === null || !user?.id) throw new Error('The voice note did not contain a complete expense.');
+
+    if (proposal.groupId) {
+      const group = groups.find((item: any) => item.id === proposal.groupId);
+      if (group) {
+        return addVoiceExpenseToGroup(
+          group.id,
+          group.name,
+          (group.members || []).map((member: any) => member.id),
+          result,
+        );
+      }
+    }
+
+    if (proposal.groupName) {
+      const group = await createVoiceGroup(proposal.groupName, proposal.memberNames);
+      return addVoiceExpenseToGroup(group.id, group.name, group.addedMembers.map((member) => member.id), result);
+    }
+
+    await apiRequest('/api/drafts', {
+      method: 'POST',
+      body: {
+        sender: 'Kryze Voice',
+        messageBody: result.transcript,
+        merchant: proposal.merchant || 'Voice expense',
+        amount: proposal.amount,
+        date: proposal.date || new Date().toISOString(),
+        // Voice is intentionally hands-free: clear notes land directly in the
+        // personal ledger rather than waiting in the review inbox.
+        status: 'ADDED',
+      },
+    });
+    fetchDrafts(false);
+    return 'Logged to personal spending';
+  };
+
+  const saveVoiceDraft = async () => {
+    if (!voiceResult) return;
+    try {
+      setVoiceBusy(true);
+      const destination = await persistVoiceAction(voiceResult);
+      setVoiceDraftSaved(true);
+      setVoiceSavedDestination(destination);
+      Alert.alert('Done', destination);
+    } catch (error: any) {
+      Alert.alert('Could not save draft', error.message || 'Please try again.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const recordingSeconds = Math.floor(recorderState.durationMillis / 1000);
+  const recordingClock = `${Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}:${(recordingSeconds % 60).toString().padStart(2, '0')}`;
+  const voiceStatus = voiceBusy
+    ? 'Kryze is understanding you'
+    : recorderState.isRecording
+      ? `Listening live · ${recordingClock}`
+      : voiceClarification
+        ? 'One quick detail needed'
+      : 'Ready to listen';
+  const voicePulseScale = voicePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
+  const voicePulseOpacity = voicePulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] });
 
   return (
     <ThemedView style={styles.container}>
@@ -320,6 +618,9 @@ export default function HomeScreen() {
                       minute: '2-digit',
                     })}
                   </ThemedText>
+                  <ThemedText numberOfLines={1} style={{ color: theme.text3, fontSize: 11, marginTop: 3 }}>
+                    {draft.sender} · {draft.messageBody}
+                  </ThemedText>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <ThemedText style={styles.amountText}>
@@ -361,6 +662,94 @@ export default function HomeScreen() {
         }}
         ListHeaderComponent={
           <>
+            {/* Voice-first hero: Kryze opens with a moment, not a spreadsheet. */}
+            <View style={{ marginBottom: 18, borderRadius: 28, overflow: 'hidden', backgroundColor: '#18273B', padding: 20 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Sparkles size={15} color="#F7C873" />
+                  <Text style={{ color: '#F7C873', marginLeft: 7, fontSize: 12, letterSpacing: 1.2, fontFamily: Typography.uiBold }}>
+                    KRYZE VOICE
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#22364D', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 6 }}>
+                  {recorderState.isRecording && (
+                    <Animated.View style={{ position: 'absolute', left: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: '#E97062', opacity: voicePulseOpacity, transform: [{ scale: voicePulseScale }] }} />
+                  )}
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: voiceBusy || recorderState.isRecording ? '#E97062' : '#75D6A3' }} />
+                  <Text style={{ color: '#D7E2EC', marginLeft: 6, fontSize: 11, fontFamily: Typography.uiBold }}>{voiceStatus}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                disabled={voiceBusy}
+                onPress={recorderState.isRecording ? stopAndInterpretVoice : startVoiceCapture}
+                activeOpacity={0.84}
+                style={{ marginTop: 18, minHeight: 94, borderRadius: 22, backgroundColor: recorderState.isRecording ? '#C95449' : '#F7C873', paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', opacity: voiceBusy ? 0.72 : 1 }}
+              >
+                {voiceBusy ? (
+                  <>
+                    <ActivityIndicator color="#18273B" />
+                    <View style={{ marginLeft: 12 }}>
+                      <Text style={{ color: '#18273B', fontFamily: Typography.uiBold, fontSize: 16 }}>Turning it into a draft</Text>
+                      <Text style={{ color: '#31475E', marginTop: 3, fontSize: 12, fontFamily: Typography.ui }}>Just a moment</Text>
+                    </View>
+                  </>
+                ) : recorderState.isRecording ? (
+                  <>
+                    <Animated.View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: '#E97062', alignItems: 'center', justifyContent: 'center', transform: [{ scale: voicePulseScale }] }}>
+                      <Square size={18} fill="#FFFFFF" color="#FFFFFF" />
+                    </Animated.View>
+                    <View style={{ marginLeft: 13, flex: 1 }}>
+                      <Text style={{ color: '#FFFFFF', fontFamily: Typography.uiBold, fontSize: 17 }}>I’m listening</Text>
+                      <Text style={{ color: '#FFE0DB', marginTop: 3, fontSize: 12, fontFamily: Typography.ui }}>Tap anywhere here to finish</Text>
+                    </View>
+                    <AudioLines size={22} color="#FFE0DB" />
+                  </>
+                ) : (
+                  <>
+                    <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: '#18273B', alignItems: 'center', justifyContent: 'center' }}>
+                      <Mic size={23} color="#F7C873" />
+                    </View>
+                    <View style={{ marginLeft: 13, flex: 1 }}>
+                      <Text style={{ color: '#18273B', fontFamily: Typography.uiBold, fontSize: 17 }}>{voiceClarification ? 'Say the amount' : 'Tap to speak'}</Text>
+                      <Text style={{ color: '#31475E', marginTop: 3, fontSize: 12, fontFamily: Typography.ui }}>{voiceClarification ? 'One answer and I’ll log it' : 'Say an expense in your own words'}</Text>
+                    </View>
+                    <ArrowUpRight size={21} color="#18273B" />
+                  </>
+                )}
+              </TouchableOpacity>
+              <Text style={{ color: '#8EA2B6', marginTop: 10, textAlign: 'center', fontSize: 11, fontFamily: Typography.ui }}>
+                {recorderState.isRecording
+                  ? 'Kryze will stop when you tap the card.'
+                  : voiceClarification
+                    ? 'Kryze asks only once when the amount is missing.'
+                    : 'Clear expenses are logged automatically.'}
+              </Text>
+            </View>
+
+            {voiceResult && (
+              <View style={{ marginBottom: 18, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: theme.primary, backgroundColor: theme.surface }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: theme.primary, fontFamily: Typography.uiBold }}>KRYZE HEARD</Text>
+                  <Sparkles size={16} color={theme.primary} />
+                </View>
+                <Text style={{ color: theme.textSecondary, fontSize: 13, marginTop: 8, fontStyle: 'italic' }}>“{voiceResult.transcript}”</Text>
+                <Text style={{ color: theme.text, fontSize: 16, lineHeight: 23, marginTop: 12, fontFamily: Typography.uiBold }}>{voiceResult.interpretation.reply}</Text>
+                {((voiceResult.interpretation.intent === 'expense_draft' && voiceResult.interpretation.amount !== null) ||
+                  (voiceResult.interpretation.intent === 'group_proposal' && voiceResult.interpretation.groupName)) && (voiceDraftSaved ? (
+                  <View style={{ marginTop: 14, backgroundColor: theme.primaryDim, borderRadius: 14, paddingVertical: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                    <Check size={17} color={theme.primary} />
+                    <Text style={{ color: theme.primary, marginLeft: 8, fontFamily: Typography.uiBold }}>{voiceSavedDestination || 'Kryze completed it'}</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={saveVoiceDraft} disabled={voiceBusy} style={{ marginTop: 14, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                    <Text style={{ color: '#FFF', fontFamily: Typography.uiBold }}>Retry Kryze action</Text>
+                    <ArrowUpRight size={16} color="#FFF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             {/* Statistics Cards */}
             <View style={styles.statsRow}>
               <View style={[styles.statCard, { backgroundColor: theme.surface }]}>
@@ -780,6 +1169,76 @@ export default function HomeScreen() {
                     </View>
                   </View>
                 )}
+
+                <View style={{ marginTop: 18, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primaryDim, alignItems: 'center', justifyContent: 'center' }}>
+                        <AudioLines size={18} color={theme.primary} />
+                      </View>
+                      <View style={{ marginLeft: 10, flex: 1 }}>
+                        <Text style={{ color: theme.text, fontFamily: Typography.uiBold }}>Kryze call reminders</Text>
+                        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                          {callsEnabled ? 'Opt in to a personal voice reminder.' : 'Coming soon — the calling service is being set up.'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: callsEnabled ? theme.lent : theme.text3 }} />
+                  </View>
+
+                  {callsEnabled && (
+                    <>
+                      <TextInput
+                        style={[styles.formInput, { marginTop: 14, color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                        value={callReminderMessage}
+                        onChangeText={setCallReminderMessage}
+                        placeholder="e.g. Review the Goa Trip balance"
+                        placeholderTextColor={theme.text3}
+                        maxLength={500}
+                      />
+                      <View style={{ flexDirection: 'row', marginTop: 10 }}>
+                        {([
+                          ['hour', 'In 1 hour'],
+                          ['tomorrowMorning', 'Tomorrow 9 AM'],
+                          ['tomorrowEvening', 'Tomorrow 7 PM'],
+                        ] as const).map(([value, label]) => (
+                          <TouchableOpacity
+                            key={value}
+                            onPress={() => setCallReminderTime(value)}
+                            style={{ flex: 1, marginRight: value === 'tomorrowEvening' ? 0 : 6, paddingVertical: 9, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center', backgroundColor: callReminderTime === value ? theme.primaryDim : theme.surface, borderWidth: 1, borderColor: callReminderTime === value ? theme.primary : theme.border }}
+                          >
+                            <Text style={{ color: callReminderTime === value ? theme.primary : theme.textSecondary, fontSize: 10, textAlign: 'center', fontFamily: Typography.uiBold }}>{label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      <TouchableOpacity onPress={() => setCallConsent((current) => !current)} style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 13 }}>
+                        <View style={{ width: 19, height: 19, borderRadius: 5, borderWidth: 1, borderColor: callConsent ? theme.primary : theme.border, backgroundColor: callConsent ? theme.primary : theme.surface, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
+                          {callConsent && <Check size={13} color="#FFF" />}
+                        </View>
+                        <Text style={{ flex: 1, color: theme.textSecondary, fontSize: 12, lineHeight: 17 }}>I agree that Kryze may call my verified phone number for this reminder.</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleScheduleCallReminder}
+                        disabled={callReminderWorking}
+                        style={{ marginTop: 14, borderRadius: 12, backgroundColor: theme.primary, paddingVertical: 12, alignItems: 'center', opacity: callReminderWorking ? 0.7 : 1 }}
+                      >
+                        {callReminderWorking ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={{ color: '#FFF', fontFamily: Typography.uiBold }}>Schedule voice call</Text>}
+                      </TouchableOpacity>
+                    </>
+                  )}
+
+                  {callReminders.filter((reminder) => reminder.status === 'SCHEDULED').map((reminder) => (
+                    <View key={reminder.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.border }}>
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontFamily: Typography.uiBold }}>{reminder.message}</Text>
+                        <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 2 }}>{new Date(reminder.scheduledFor).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</Text>
+                      </View>
+                      <TouchableOpacity disabled={callReminderWorking} onPress={() => handleCancelCallReminder(reminder.id)}>
+                        <Text style={{ color: theme.owe, fontSize: 12, fontFamily: Typography.uiBold }}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
 
                 <View style={styles.formGroup}>
                   <Text style={[styles.inputLabel, { color: theme.text }]}>Full Name</Text>

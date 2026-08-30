@@ -26,6 +26,7 @@ model User {
   subscription Subscription?
   whatsapp     WhatsApp?
   botCommands  BotCommandLog[]
+  callReminders VoiceCallReminder[]
 }
 
 model TransactionDraft {
@@ -134,12 +135,15 @@ model Subscription {
 }
 
 model WhatsApp {
-  id            String   @id @default(uuid()) @db.Uuid
-  userId        String   @unique @db.Uuid
-  phone         String   @unique
-  linkedAt      DateTime @default(now())
-  pendingDraftId String? // id of a PENDING draft awaiting a group choice from the user
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @unique @db.Uuid
+  phone                 String   @unique
+  linkedAt              DateTime @default(now())
+  pendingDraftId        String?  // id of a PENDING draft awaiting a group choice from the user
+  pendingGroupName      String?  // voice-created group awaiting an explicit CREATE confirmation
+  pendingGroupMemberIds String?  // JSON array of resolved Splitx user IDs
+  pendingGroupExpiresAt DateTime?
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model BotCommandLog {
@@ -151,3 +155,22 @@ model BotCommandLog {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// Calls are strictly opt-in and are dispatched by a protected external scheduler.
+model VoiceCallReminder {
+  id                     String   @id @default(uuid()) @db.Uuid
+  userId                 String   @db.Uuid
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phoneNumber            String
+  message                String
+  scheduledFor           DateTime
+  status                 String   @default("SCHEDULED") // SCHEDULED, PROCESSING, SENT, FAILED, CANCELLED
+  attempts               Int      @default(0)
+  providerConversationId String?
+  lastError              String?
+  dispatchedAt           DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([userId, scheduledFor])
+}

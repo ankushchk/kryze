@@ -1,4 +1,7 @@
+packages:
+  - "*"
+
 allowBuilds:
   unrs-resolver: true
 patchedDependencies:
-  '@maniac-tech/react-native-expo-read-sms': patches/@maniac-tech__react-native-expo-read-sms.patch
+  "@maniac-tech/react-native-expo-read-sms": patches/@maniac-tech__react-native-expo-read-sms.patch

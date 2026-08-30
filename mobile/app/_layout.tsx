@@ -25,7 +25,9 @@ function RootLayoutNav() {
 
     const inAuthGroup = segments[0] === '(auth)';
     const isCompleteProfileScreen = segments[1] === 'complete-profile';
-    const isProfileIncomplete = session && !user?.name;
+    // `user` is temporarily null while a saved session is used offline. Do not
+    // redirect that user away from local features such as the SMS inbox.
+    const isProfileIncomplete = Boolean(session && user && !user.name);
 
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/welcome');

@@ -1,73 +1,105 @@
 import { Request, Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
 import { uploadToCloudinary } from '../config/cloudinary.js';
 
 // Shared receipt OCR that both the multer route and the WhatsApp bot call.
-// Returns the parsed Gemini payload merged with the Cloudinary receipt URL (may be null).
+// Returns the parsed OpenAI payload merged with the Cloudinary receipt URL (may be null).
 export async function extractReceipt(
   buffer: Buffer,
   mimeType: string
 ): Promise<{ receiptUrl: string | null; [key: string]: any }> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured on the backend server');
+    throw new Error('OPENAI_API_KEY is not configured on the backend server');
   }
 
-  // Trigger Cloudinary upload in parallel or prior to Gemini to get secure URL
+  // Store the original receipt before extracting its structured details.
   const receiptUrl = await uploadToCloudinary(buffer);
 
-  const ai = new GoogleGenAI({ apiKey });
+  // Some mobile clients send .jpg files as `image/jpg`, but OpenAI accepts
+  // the standard `image/jpeg` type instead.
+  const normalizedMimeType = mimeType.toLowerCase() === 'image/jpg'
+    ? 'image/jpeg'
+    : mimeType;
 
   // Convert file buffer to base64 inline data format
   const base64Data = buffer.toString('base64');
 
-  const prompt = `Analyze this receipt image. Extract the merchant name, total amount, transaction date, categorization, and the individual line items.
-For each line item, extract the name/description, quantity (default to 1 if not specified), and the total price for that line item (i.e. unit price multiplied by quantity).
-Return a structured JSON object. Ensure total amount and item prices are numbers, and date is formatted as YYYY-MM-DD.`;
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: [
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType,
-        },
-      },
-      prompt,
-    ],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          merchant: { type: 'STRING' },
-          amount: { type: 'NUMBER' },
-          date: { type: 'STRING' }, // YYYY-MM-DD
-          category: { 
-            type: 'STRING', 
-            enum: ['Food', 'Stay', 'Travel', 'Shopping', 'Other'] 
+  // Keep the model configurable without a code deployment. It deliberately
+  // defaults to the same OpenAI family already used by the voice co-pilot.
+  const receiptModel = process.env.OPENAI_RECEIPT_MODEL || process.env.OPENAI_EXPENSE_MODEL || 'gpt-5';
+
+  const prompt = `You are Kryze's receipt intelligence engine. Read this receipt image carefully and return only the requested structured data.
+
+Extraction rules:
+- Use the final payable GRAND TOTAL / TOTAL AMOUNT, never a subtotal, tax, discount, change due, card balance, or UPI balance.
+- Include taxes, service charges, delivery fees, and tip only when they are part of the final amount paid.
+- Extract printed line items only. Do not invent unclear items or prices.
+- For each line item, return its line total (unit price multiplied by quantity). Use quantity 1 when it is not printed.
+- Use the transaction date printed on the receipt; if it is absent or unreadable, return an empty string.
+- Pick the most suitable category from the allowed values. Use Other when uncertain.
+- Preserve merchant spelling when readable; otherwise use "Unknown Merchant".
+
+Return a structured JSON object. Amounts and item prices must be numbers and dates must be YYYY-MM-DD when present.`;
+
+  const receiptSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      merchant: { type: 'string' },
+      amount: { type: 'number' },
+      date: { type: 'string' }, // YYYY-MM-DD, or empty when unavailable
+      category: { type: 'string', enum: ['Food', 'Stay', 'Travel', 'Shopping', 'Other'] },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string' },
+            quantity: { type: 'number' },
+            price: { type: 'number' },
           },
-          items: {
-            type: 'ARRAY',
-            items: {
-              type: 'OBJECT',
-              properties: {
-                name: { type: 'STRING' },
-                quantity: { type: 'NUMBER' },
-                price: { type: 'NUMBER' }
-              },
-              required: ['name', 'quantity', 'price']
-            }
-          }
+          required: ['name', 'quantity', 'price'],
         },
-        required: ['merchant', 'amount', 'date', 'category', 'items'],
       },
     },
-  });
+    required: ['merchant', 'amount', 'date', 'category', 'items'],
+  };
 
-  const responseText = response.text;
-  if (!responseText) {
-    throw new Error('Gemini API returned an empty response');
+  const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: receiptModel,
+      store: false,
+      reasoning: { effort: 'minimal' },
+      input: [{
+        role: 'user',
+        content: [
+          { type: 'input_text', text: prompt },
+          { type: 'input_image', image_url: `data:${normalizedMimeType};base64,${base64Data}`, detail: 'high' },
+        ],
+      }],
+      text: { format: { type: 'json_schema', name: 'receipt', strict: true, schema: receiptSchema } },
+    }),
+  });
+  const openAiPayload = await openAiResponse.json() as {
+    output_text?: string;
+    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    error?: { message?: string } | null;
+    incomplete_details?: { reason?: string } | null;
+  };
+  const responseText = openAiPayload.output_text || openAiPayload.output
+    ?.flatMap((item) => item.content || [])
+    .filter((content) => content.type === 'output_text' && typeof content.text === 'string')
+    .map((content) => content.text!)
+    .join('\n');
+  if (!openAiResponse.ok || !responseText) {
+    const incompleteReason = openAiPayload.incomplete_details?.reason;
+    throw new Error(
+      openAiPayload.error?.message ||
+      (incompleteReason ? `OpenAI receipt analysis was incomplete: ${incompleteReason}.` : 'OpenAI returned an empty receipt analysis.')
+    );
   }
 
   const parsedData = JSON.parse(responseText);

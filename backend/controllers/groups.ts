@@ -46,22 +46,33 @@ export const createGroup = async (req: AuthRequest, res: Response): Promise<void
       return g;
     });
 
-    // 2. Add other members if identifiers (emails or phone numbers) are supplied
+    // 2. Add other members. Besides email/phone contacts, this also accepts a
+    // spoken name from Kryze Voice and creates a local placeholder member that
+    // can be connected to a real contact later.
     const addedMembers: any[] = [];
     if (Array.isArray(memberIdentifiers) && memberIdentifiers.length > 0) {
       for (const idf of memberIdentifiers) {
         if (!idf || !idf.trim()) continue;
         const cleaned = idf.trim();
         
+        const isEmail = cleaned.includes("@");
+        const looksLikePhoneNumber = /^\+?\d{10,15}$/.test(cleaned.replace(/[\s\-()]/g, ""));
+        const normalizedPhone = looksLikePhoneNumber ? normalizePhoneNumber(cleaned) : null;
         let targetUser = await prisma.user.findFirst({
           where: {
             OR: [
               { email: cleaned.toLowerCase() },
-              { phoneNumber: normalizePhoneNumber(cleaned) },
+              ...(normalizedPhone ? [{ phoneNumber: normalizedPhone }] : []),
               { phoneNumber: cleaned }
             ],
           },
         });
+
+        if (!targetUser && !isEmail && !looksLikePhoneNumber) {
+          targetUser = await prisma.user.create({
+            data: { name: cleaned, passwordHash: "" },
+          });
+        }
 
         if (targetUser && targetUser.id !== userId) {
           try {
@@ -960,10 +971,13 @@ export const createSettlementPaymentLink = async (req: AuthRequest, res: Respons
 
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const paymentProviderMode = process.env.PAYMENT_PROVIDER_MODE?.toLowerCase() ?? "razorpay";
     const description = `Settlement: ${fromUser.name || "User"} to ${toUser.name || "User"}`;
-    const apiHost = process.env.EXPO_PUBLIC_API_URL || process.env.API_URL || process.env.BACKEND_URL || "http://192.168.1.3:3000";
+    // Browser callbacks and mock checkout links must be reachable from the
+    // device, so prefer an explicitly configured public URL over a local IP.
+    const apiHost = process.env.PUBLIC_API_URL || process.env.BACKEND_URL || process.env.API_URL || process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 
-    if (keyId && keySecret) {
+    if (paymentProviderMode === "razorpay" && keyId && keySecret) {
       // Direct integration with real Razorpay Checkout API
       const authStr = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
       

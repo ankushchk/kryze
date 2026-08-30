@@ -12,7 +12,7 @@ import {
 import { useNavigation, useRouter } from 'expo-router';
 import { useAuth } from '@/hooks/useAuth';
 import { apiRequest } from '@/lib/api';
-import { isTransactionSms, parseTransactionSms } from '@/lib/smsParser';
+import { hasMonetaryAmount, parseTransactionSms } from '@/lib/smsParser';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 
@@ -107,6 +107,7 @@ export function useHomeScreen() {
   // Fetch all transaction drafts from backend
   const fetchDrafts = async (showIndicator = true) => {
     if (!session) return;
+    let draftsForLocalScan = dbTransactions;
     if (showIndicator) {
       setLoading(true);
       showToast('Refreshing transaction history...', 'info');
@@ -116,15 +117,12 @@ export function useHomeScreen() {
       if (response && response.drafts) {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setDbTransactions(response.drafts);
+        draftsForLocalScan = response.drafts;
 
         if (showIndicator) {
           showToast('Transactions updated!', 'success');
         }
 
-        // Silently scan local SMS to find unprocessed drafts matching these DB transactions
-        if (Platform.OS === 'android') {
-          triggerLocalSmsScan(response.drafts);
-        }
       }
     } catch (err: any) {
       console.error('Error fetching drafts:', err);
@@ -132,6 +130,11 @@ export function useHomeScreen() {
         showToast(err.message || 'Failed to load transactions', 'error');
       }
     } finally {
+      // The local inbox is the source of truth for recent Android SMS. Keep it
+      // available even when the backend/tunnel is temporarily unreachable.
+      if (Platform.OS === 'android') {
+        void triggerLocalSmsScan(draftsForLocalScan);
+      }
       setLoading(false);
     }
   };
@@ -147,16 +150,6 @@ export function useHomeScreen() {
           async (smsList: Array<{ sender: string; body: string; date: string }>) => {
             if (!smsList || smsList.length === 0) return;
 
-            let lastSyncedDate = 0;
-            try {
-              const stored = await SecureStore.getItemAsync('last_synced_sms_date');
-              if (stored) {
-                lastSyncedDate = parseInt(stored, 10);
-              }
-            } catch (e) {
-              console.error('Failed to get last synced SMS date:', e);
-            }
-
             const existingKeys = new Set(
               dbTxList.map((t: any) => `${t.sender.trim()}_${t.messageBody.trim()}_${new Date(t.date).getTime()}`)
             );
@@ -167,11 +160,7 @@ export function useHomeScreen() {
               const msgDateVal = parseInt(item.date, 10);
               const msgDate = !isNaN(msgDateVal) ? new Date(msgDateVal) : new Date();
 
-              if (!isNaN(msgDateVal) && msgDateVal <= lastSyncedDate) {
-                continue;
-              }
-
-              if (isTransactionSms(item.body)) {
+              if (hasMonetaryAmount(item.body)) {
                 const key = `${item.sender.trim()}_${item.body.trim()}_${msgDate.getTime()}`;
                 
                 if (existingKeys.has(key)) {
@@ -180,7 +169,7 @@ export function useHomeScreen() {
 
                 const { merchant, amount } = parseTransactionSms(item.body);
                 computedDrafts.push({
-                  id: `local-scan-${item.date}-${Math.random()}`,
+                  id: `local-scan-${item.date}-${item.sender.trim()}`,
                   sender: item.sender.trim(),
                   messageBody: item.body.trim(),
                   merchant,
@@ -382,7 +371,7 @@ export function useHomeScreen() {
               messageBody = match[2].trim();
             }
 
-            if (isTransactionSms(messageBody)) {
+            if (hasMonetaryAmount(messageBody)) {
               const { merchant, amount } = parseTransactionSms(messageBody);
               const localDraft: TransactionDraft = {
                 id: `local-received-${Date.now()}-${Math.random()}`,
@@ -403,6 +392,11 @@ export function useHomeScreen() {
               });
             }
           });
+
+          // The first automatic fetch often runs before Android finishes showing
+          // the SMS permission prompt. Scan again immediately after permission is
+          // granted so recent transactions appear without requiring another tap.
+          void triggerLocalSmsScan(dbTransactions);
         }
       } catch (err) {
         console.error('Error starting Android SMS listener:', err);
@@ -479,7 +473,7 @@ export function useHomeScreen() {
               const msgDateVal = parseInt(item.date, 10);
               const msgDate = !isNaN(msgDateVal) ? new Date(msgDateVal) : new Date();
 
-              if (isTransactionSms(item.body)) {
+              if (hasMonetaryAmount(item.body)) {
                 const key = `${item.sender.trim()}_${item.body.trim()}_${msgDate.getTime()}`;
                 
                 if (existingKeys.has(key)) {
@@ -534,9 +528,9 @@ export function useHomeScreen() {
       return;
     }
 
-    const isTx = isTransactionSms(textToImport);
-    if (!isTx) {
-      showToast('Text does not look like a transaction SMS.', 'error');
+    const hasAmount = hasMonetaryAmount(textToImport);
+    if (!hasAmount) {
+      showToast('Text does not contain a monetary amount.', 'error');
       return;
     }
 

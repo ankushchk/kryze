@@ -81,20 +81,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const token = await getAuthToken();
         if (token) {
+          // Keep local-only features (such as Android SMS drafts) usable while the
+          // backend/tunnel is temporarily offline. A 401/403 below still clears it.
+          setSession({ token });
           // Fetch current user from backend to verify token is valid
           const response = await apiRequest('/api/auth/me');
           if (response?.user) {
-            setSession({ token });
             setUser(response.user);
           } else {
             // Token is invalid/expired
             await removeAuthToken();
+            setSession(null);
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load session:', error);
-        // Clean up token if we get a verification error
-        await removeAuthToken();
+        // Only a genuine authorization response invalidates the cached session.
+        // Network/tunnel failures should not hide locally detected transactions.
+        if (error?.status === 401 || error?.status === 403) {
+          await removeAuthToken();
+          setSession(null);
+          setUser(null);
+        }
       } finally {
         setInitialized(true);
       }
@@ -225,4 +233,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
-
